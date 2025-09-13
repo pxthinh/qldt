@@ -22,6 +22,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     #client
+    path('api/customer/', include('api.customer.urls')),
     path('api/product/', include('api.product.urls')),
     path('api/category/', include('api.category.urls')),
     path('api/brand/', include('api.brand.urls')),
@@ -29,4 +30,5 @@ urlpatterns = [
     #admin
     path("api/admin/category/", include("api.category.urls_admin")),
     path("api/admin/brand/", include("api.brand.urls_admin")),
+    path("api/admin/customer/", include("api.customer.urls_admin")),
 ]

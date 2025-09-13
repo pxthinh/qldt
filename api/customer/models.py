@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
+from django.utils import timezone
 
 class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True)
@@ -15,6 +16,8 @@ class Customer(models.Model):
     city   = models.CharField(max_length=100, blank=True, null=True)
     state  = models.CharField(max_length=100, blank=True, null=True)
     zip_code = models.CharField(max_length=20, blank=True, null=True)
+
+    is_email_verified = models.BooleanField(default=False)
 
     class Meta:
         indexes = [
@@ -36,3 +39,16 @@ class Customer(models.Model):
         if self.password and "$" not in self.password:
             self.password = make_password(self.password)
         super().save(*args, **kwargs)
+
+class RevokedAuthToken(models.Model):
+    fingerprint = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def is_active(self) -> bool:
+        return self.expires_at > timezone.now()
