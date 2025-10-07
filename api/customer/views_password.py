@@ -4,7 +4,15 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.core import signing
 from django.urls import reverse
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
 from .models import Customer
+from .schemas import (
+    password_reset_request_schema,
+    password_reset_confirm_schema,
+    password_reset_response
+)
 
 PWRESET_SALT = "customer-password-reset"
 PWRESET_MAX_AGE = 60 * 60  # 1 giờ
@@ -33,6 +41,13 @@ def _send_reset_email(request, customer: Customer):
     )
     send_mail(subject, message, None, [customer.email], fail_silently=False)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Request password reset",
+    request_body=password_reset_request_schema,
+    responses=password_reset_response
+)
+@api_view(['POST'])
 @csrf_exempt
 @require_http_methods(["POST"])
 def password_reset_request(request):
@@ -46,15 +61,22 @@ def password_reset_request(request):
         elif email:
             obj = Customer.objects.get(email__iexact=email)
         else:
-            return JsonResponse({"detail": "user_name hoặc email là bắt buộc"}, status=400)
+            return Response({"detail": "user_name hoặc email là bắt buộc"}, status=400)
 
         if obj.email:
             _send_reset_email(request, obj)
     except Customer.DoesNotExist:
         pass
 
-    return JsonResponse({"detail": "Nếu tài khoản tồn tại, email đặt lại mật khẩu đã được gửi."})
+    return Response({"detail": "Nếu tài khoản tồn tại, email đặt lại mật khẩu đã được gửi."})
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Confirm password reset with token",
+    request_body=password_reset_confirm_schema,
+    responses=password_reset_response
+)
+@api_view(['POST'])
 @csrf_exempt
 @require_http_methods(["POST"])
 def password_reset_confirm(request):
@@ -65,13 +87,13 @@ def password_reset_confirm(request):
     confirm_password = (body.get("confirm_password") or body.get("password_confirm") or "").strip()
 
     if not token:
-        return JsonResponse({"detail": "token is required"}, status=400)
+        return Response({"detail": "token is required"}, status=400)
     if not new_password or len(new_password) < 6:
-        return JsonResponse({"detail": "new_password tối thiểu 6 ký tự"}, status=400)
+        return Response({"detail": "new_password tối thiểu 6 ký tự"}, status=400)
     if not confirm_password:
-        return JsonResponse({"detail": "confirm_password is required"}, status=400)
+        return Response({"detail": "confirm_password is required"}, status=400)
     if new_password != confirm_password:
-        return JsonResponse({"detail": "password confirmation does not match"}, status=400)
+        return Response({"detail": "password confirmation does not match"}, status=400)
 
     try:
         data = signing.loads(token, salt=PWRESET_SALT, max_age=PWRESET_MAX_AGE)
@@ -80,13 +102,13 @@ def password_reset_confirm(request):
         obj = Customer.objects.get(pk=cid)
 
         if obj.email and obj.email.lower() != email:
-            return JsonResponse({"detail": "invalid token"}, status=400)
+            return Response({"detail": "invalid token"}, status=400)
     except signing.SignatureExpired:
-        return JsonResponse({"detail": "token expired"}, status=400)
+        return Response({"detail": "token expired"}, status=400)
     except (signing.BadSignature, Customer.DoesNotExist):
-        return JsonResponse({"detail": "invalid token"}, status=400)
+        return Response({"detail": "invalid token"}, status=400)
 
     obj.set_password(new_password)
     obj.save(update_fields=["password"])
 
-    return JsonResponse({"detail": "Password updated successfully"})
+    return Response({"detail": "Password updated successfully"})

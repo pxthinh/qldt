@@ -15,20 +15,54 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+from django.conf import settings
+from django.conf.urls.static import static
+
+schema_view = get_schema_view(
+   openapi.Info(
+      title="E-commerce API",
+      default_version='v1',
+      description="""
+      E-commerce API documentation for customer and admin operations.
+      
+      ## Authentication
+      - Register a new account at `/api/customer/register/`
+      - Get your JWT token at `/api/customer/login/`
+      - Use the token in the header: `Authorization: Bearer <token>`
+      """,
+      terms_of_service="https://www.yourapp.com/terms/",
+      contact=openapi.Contact(email="pxthinh.vn@email.com"),
+      license=openapi.License(name="Proprietary"),
+   ),
+   public=True,
+   permission_classes=(permissions.AllowAny,),
+)
 
 urlpatterns = [
-    #admin
+    # Admin
     path('admin/', admin.site.urls),
 
-    #client
+    # API Documentation
+    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    
+    # API Endpoints
     path('api/customer/', include('api.customer.urls')),
     path('api/product/', include('api.product.urls')),
     path('api/category/', include('api.category.urls')),
     path('api/brand/', include('api.brand.urls')),
 
-    #admin
-    path("api/admin/category/", include("api.category.urls_admin")),
-    path("api/admin/brand/", include("api.brand.urls_admin")),
-    path("api/admin/customer/", include("api.customer.urls_admin")),
+    # Admin API Endpoints
+    path('api/admin/category/', include('api.category.urls_admin')),
+    path('api/admin/brand/', include('api.brand.urls_admin')),
+    path('api/admin/customer/', include('api.customer.urls_admin')),
 ]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

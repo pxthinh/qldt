@@ -7,7 +7,12 @@ from django.core import signing
 from django.core.mail import send_mail
 from django.urls import reverse
 from django.db.models import Q
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .models import Customer
+from .schemas import register_request, register_response
 
 # cấu hình token
 TOKEN_SALT = "customer-email-confirm"
@@ -34,8 +39,14 @@ def _send_verification_email(request, customer: Customer):
     )
     send_mail(subject, message, None, [customer.email], fail_silently=False)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Register a new customer account",
+    request_body=register_request,
+    responses=register_response
+)
+@api_view(['POST'])
 @csrf_exempt
-@require_http_methods(["POST"])
 def customer_register(request):
     body = _json_body(request)
 
@@ -87,32 +98,57 @@ def customer_register(request):
         "detail": "Registered. Please check your email to confirm."
     }, status=201)
 
+@swagger_auto_schema(
+    method='get',
+    operation_description="Confirm customer email with verification token",
+    responses={
+        200: "Email confirmed successfully",
+        400: "Invalid or expired token"
+    }
+)
+@api_view(['GET'])
 @require_http_methods(["GET"])
 def customer_confirm_email(request):
     token = request.GET.get("token")
     if not token:
-        return JsonResponse({"detail": "token is required"}, status=400)
+        return JsonResponse({"msg": "Token is required"}, status=400)
     try:
         data = signing.loads(token, salt=TOKEN_SALT, max_age=TOKEN_MAX_AGE)
     except signing.BadSignature:
-        return JsonResponse({"detail": "invalid token"}, status=400)
+        return JsonResponse({"msg": "Invalid token"}, status=400)
     except signing.SignatureExpired:
-        return JsonResponse({"detail": "token expired"}, status=400)
+        return JsonResponse({"msg": "Token expired"}, status=400)
 
     cid = data.get("id")
     email = (data.get("email") or "").lower()
     try:
         obj = Customer.objects.get(pk=cid, email__iexact=email)
     except Customer.DoesNotExist:
-        return JsonResponse({"detail": "customer not found"}, status=404)
+        return JsonResponse({"msg": "Customer not found"}, status=404)
 
     if obj.is_email_verified:
-        return JsonResponse({"detail": "email already verified"})
+        return JsonResponse({"msg": "Email already verified"})
 
     obj.is_email_verified = True
     obj.save(update_fields=["is_email_verified"])
-    return JsonResponse({"detail": "email verified successfully"})
+    return JsonResponse({"msg": "Email verified successfully"})
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Resend email confirmation",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['email'],
+        properties={
+            'email': openapi.Schema(type=openapi.TYPE_STRING, format='email')
+        }
+    ),
+    responses={
+        200: "Confirmation email resent",
+        400: "Invalid email or user already verified"
+    }
+)
+@api_view(['POST'])
 @csrf_exempt
 @require_http_methods(["POST"])
 def customer_resend_confirmation(request):

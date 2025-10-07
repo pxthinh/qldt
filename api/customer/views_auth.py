@@ -5,7 +5,12 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.core import signing
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
 from .models import Customer, RevokedAuthToken
+from .schemas import login_request, login_response, user_profile_response
 
 AUTH_SALT = "customer-auth-token"
 AUTH_MAX_AGE = 60 * 60 * 24 * 7  # 7 ngày
@@ -45,8 +50,14 @@ def _customer_from_token(request):
     except (signing.BadSignature, Customer.DoesNotExist):
         return None, JsonResponse({"detail": "Invalid token"}, status=401)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Customer login",
+    request_body=login_request,
+    responses=login_response
+)
+@api_view(['POST'])
 @csrf_exempt
-@require_http_methods(["POST"])
 def customer_login(request):
     """
     Body JSON: {"user_name": "...", "password": "..."}
@@ -85,7 +96,14 @@ def customer_login(request):
         }
     }, status=200)
 
-@require_http_methods(["GET"])
+@swagger_auto_schema(
+    method='get',
+    operation_description="Get current customer profile",
+    responses=user_profile_response,
+    security=[{'Bearer': []}]
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def customer_me(request):
     obj, error = _customer_from_token(request)
     if error:
@@ -100,8 +118,18 @@ def customer_me(request):
         "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
     })
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Customer logout",
+    responses={
+        200: "Successfully logged out",
+        401: "Unauthorized"
+    },
+    security=[{'Bearer': []}]
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 @csrf_exempt
-@require_http_methods(["POST"])
 def customer_logout(request):
     """
     Thu hồi Bearer token hiện tại (đưa vào blacklist đến khi hết hạn).
@@ -130,4 +158,3 @@ def customer_logout(request):
         defaults={"expires_at": expires_at},
     )
     return JsonResponse({"detail": "Logged out"}, status=200)
-
