@@ -57,10 +57,16 @@ urlpatterns = [
     path('api/category/', include('api.category.urls')),
     path('api/brand/', include('api.brand.urls')),
 
+    # Staff authentication endpoints
+    path('api/staff/auth/', include('api.staff.urls')),
+
     # Admin API Endpoints
     path('api/admin/category/', include('api.category.urls_admin')),
     path('api/admin/brand/', include('api.brand.urls_admin')),
     path('api/admin/customer/', include('api.customer.urls_admin')),
+    path('api/admin/product/', include('api.product.urls_admin')),
+
+    # Authentication is handled by our custom staff auth endpoints
 ]
 
 # Serve media files in development

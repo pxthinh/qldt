@@ -1,9 +1,10 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from ..base.models import TimestampedModelWithManager
 
-class Product(models.Model):
-    product_id   = models.AutoField(primary_key=True)
-    product_name = models.CharField(max_length=255)
+class Product(TimestampedModelWithManager):
+    product_id = models.AutoField(primary_key=True)
+    product_name = models.CharField(max_length=255, db_index=True)
 
     brand = models.ForeignKey(
         'brand.Brand',
@@ -25,17 +26,19 @@ class Product(models.Model):
     )
 
     list_price = models.DecimalField(
-        max_digits=10, decimal_places=2,
+        max_digits=10, 
+        decimal_places=2,
         validators=[MinValueValidator(0)]
     )
 
-    class Meta:
+    class Meta(TimestampedModelWithManager.Meta):
         verbose_name = "Product"
         verbose_name_plural = "Products"
         indexes = [
             models.Index(fields=["product_name"]),
             models.Index(fields=["brand_id"]),
             models.Index(fields=["category"]),
+            models.Index(fields=["deleted_at"]),
         ]
 
     def __str__(self):

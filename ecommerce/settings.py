@@ -31,20 +31,25 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'api.brand',
-    'api.category',
-    'api.customer',
-    'api.product',
-    'api.staff',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+    # Third-party apps
     'rest_framework',
+    'rest_framework.authtoken',
     'drf_yasg',
     'corsheaders',
+    
+    # Local apps
+    'api.brand',
+    'api.category',
+    'api.customer',
+    'api.product',
+    'api.staff',
 ]
 
 MIDDLEWARE = [
@@ -57,6 +62,34 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Custom user model
+AUTH_USER_MODEL = 'staff.Staff'
+
+# REST Framework settings
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',
+}
+
+# Core API settings
+REST_FRAMEWORK['DEFAULT_SCHEMA_CLASS'] = 'rest_framework.schemas.coreapi.AutoSchema'
+
+# Token settings
+TOKEN_EXPIRES_AFTER_DAYS = 7  # Token expiration in days
 
 ROOT_URLCONF = 'ecommerce.urls'
 
