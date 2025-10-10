@@ -22,24 +22,24 @@ from drf_yasg import openapi
 from django.conf import settings
 from django.conf.urls.static import static
 
+# Swagger configuration
 schema_view = get_schema_view(
-   openapi.Info(
-      title="E-commerce API",
-      default_version='v1',
-      description="""
-      E-commerce API documentation for customer and admin operations.
-      
-      ## Authentication
-      - Register a new account at `/api/customer/register/`
-      - Get your JWT token at `/api/customer/login/`
-      - Use the token in the header: `Authorization: Bearer <token>`
-      """,
-      terms_of_service="https://www.yourapp.com/terms/",
-      contact=openapi.Contact(email="pxthinh.vn@email.com"),
-      license=openapi.License(name="Proprietary"),
-   ),
-   public=True,
-   permission_classes=(permissions.AllowAny,),
+    openapi.Info(
+        title="E-commerce API",
+        default_version='v1',
+        description="""
+        Ecommerce API documentation
+        
+        ## Authentication
+        - Get your token from `/api/staff/auth/login/`
+        - Use the token in the header: `Authorization: Token <your_token>`
+        """,
+        terms_of_service="https://www.google.com/policies/terms/",
+        contact=openapi.Contact(email="contact@ecommerce.local"),
+        license=openapi.License(name="BSD License"),
+    ),
+    public=True,
+    permission_classes=(permissions.AllowAny,),
 )
 
 urlpatterns = [
@@ -65,6 +65,7 @@ urlpatterns = [
     path('api/admin/brand/', include('api.brand.urls_admin')),
     path('api/admin/customer/', include('api.customer.urls_admin')),
     path('api/admin/product/', include('api.product.urls_admin')),
+    path('api/admin/staff/', include('api.staff.urls_admin')),  # Staff admin endpoints
 
     # Authentication is handled by our custom staff auth endpoints
 ]

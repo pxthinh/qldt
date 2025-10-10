@@ -1,98 +1,88 @@
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
-from django.contrib.auth.hashers import make_password
-from django.utils.translation import gettext_lazy as _
+from django.contrib.auth.hashers import make_password, check_password
+from django.conf import settings
+from django.utils.crypto import get_random_string
+from datetime import timedelta
+from django.utils import timezone
 
-class StaffManager(BaseUserManager):
-    """Custom manager for the Staff model."""
-    def create_user(self, username, email=None, password=None, **extra_fields):
-        if not username:
-            raise ValueError(_('The Username must be set'))
-        email = self.normalize_email(email) if email else None
-        
-        # Create the user with the given fields
-        user = self.model(
-            username=username,
-            email=email,
-            **extra_fields
-        )
-        user.set_password(password)
-        user.save(using=self._db)
-        return user
-
-    def create_superuser(self, username, email=None, password=None, **extra_fields):
-        # Set default values for superuser
-        extra_fields.setdefault('is_active', True)
-        
-        # Create the user first
-        user = self.create_user(
-            username=username,
-            email=email,
-            password=password,
-            **extra_fields
-        )
-        
-        # Set superuser and staff status
-        user.is_superuser = True
-        user.is_staff = True
-        user.save(using=self._db)
-        return user
-
-class Staff(AbstractBaseUser, PermissionsMixin):
-    """Custom user model for staff members."""
+class Staff(models.Model):
+    """Staff member model."""
     staff_id = models.AutoField(primary_key=True)
-    username = models.CharField(_('username'), max_length=150, unique=True, db_index=True)
-    email = models.EmailField(_('email address'), blank=True, null=True)
-    first_name = models.CharField(_('first name'), max_length=50, blank=True)
-    last_name = models.CharField(_('last name'), max_length=50, blank=True, null=True)
-    phone = models.CharField(_('phone number'), max_length=20, blank=True, null=True)
+    username = models.CharField(max_length=150, unique=True, db_index=True)
+    email = models.EmailField(blank=True, null=True)
+    first_name = models.CharField(max_length=50, blank=True)
+    last_name = models.CharField(max_length=50, blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    password_hash = models.CharField(max_length=128, db_column='password', null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
     
-    # Required fields
-    is_active = models.BooleanField(_('active'), default=True)
-    is_staff = models.BooleanField(_('staff status'), default=False)
-    date_joined = models.DateTimeField(_('date joined'), auto_now_add=True)
+    # Store relationship
+    store_id = models.IntegerField(null=True, blank=True)
     
-    # Store and manager relationships
-    store = models.IntegerField(_('store'), null=True, blank=True, db_column="store_id")
+    # Manager relationship
     manager = models.ForeignKey(
         'self',
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        db_column='manager_id',
-        related_name='subordinates',
-        verbose_name=_('manager')
+        related_name='subordinates'
     )
 
-    objects = StaffManager()
-
-    USERNAME_FIELD = 'username'
-    REQUIRED_FIELDS = []
-
-    class Meta:
-        verbose_name = _('staff')
-        verbose_name_plural = _('staff')
-        indexes = [
-            models.Index(fields=["username"]),
-            models.Index(fields=["email"]),
-            models.Index(fields=["phone"]),
-            models.Index(fields=["active"]),
-        ]
-
     def __str__(self):
-        name = f"{self.first_name} {self.last_name or ''}".strip()
-        return name or self.username
+        return self.username or f"Staff {self.staff_id}"
 
-    def set_password(self, raw_password: str):
-        self.password = make_password(raw_password)
+    def set_password(self, raw_password: str) -> None:
+        self.password_hash = make_password(raw_password)
 
     def check_password(self, raw_password: str) -> bool:
-        return check_password(raw_password, self.password)
+        return check_password(raw_password, self.password_hash)
 
     def save(self, *args, **kwargs):
-        if self.password and not self.password.startswith('pbkdf2_sha256$'):
+        # Only hash password if it's set and not already hashed
+        if hasattr(self, 'password') and not self.password_hash.startswith('pbkdf2_sha256$'):
             self.set_password(self.password)
         super().save(*args, **kwargs)
-        
+
     class Meta:
         db_table = 'staff'
+        verbose_name = 'staff member'
+        verbose_name_plural = 'staff members'
+
+
+class StaffToken(models.Model):
+    """
+    Custom token model for Staff authentication.
+    """
+    key = models.CharField(max_length=40, primary_key=True)
+    staff = models.ForeignKey(
+        Staff, 
+        related_name='auth_tokens',
+        on_delete=models.CASCADE,
+        verbose_name="Staff"
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    expires = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.key:
+            self.key = self.generate_key()
+        if not self.expires:
+            self.expires = timezone.now() + timedelta(days=settings.TOKEN_EXPIRY_DAYS)
+        return super().save(*args, **kwargs)
+
+    def generate_key(self):
+        return get_random_string(length=40)
+
+    def is_expired(self):
+        if not self.expires:
+            return False
+        return timezone.now() > self.expires
+
+    def __str__(self):
+        return f"Token for {self.staff.username} ({'expired' if self.is_expired() else 'active'})"
+
+    class Meta:
+        verbose_name = 'Staff Token'
+        verbose_name_plural = 'Staff Tokens'
