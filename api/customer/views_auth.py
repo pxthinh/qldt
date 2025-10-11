@@ -51,10 +51,17 @@ def _customer_from_token(request):
         return None, JsonResponse({"detail": "Invalid token"}, status=401)
 
 @swagger_auto_schema(
+    tags=['Customer Auth'],
     method='post',
-    operation_description="Customer login",
+    operation_summary="Customer Login",
+    operation_description="Authenticate a customer and return an access token.",
     request_body=login_request,
-    responses=login_response
+    responses={
+        200: login_response,
+        400: 'Invalid input',
+        401: 'Invalid credentials',
+        403: 'Account is not active'
+    }
 )
 @api_view(['POST'])
 @csrf_exempt
@@ -97,10 +104,14 @@ def customer_login(request):
     }, status=200)
 
 @swagger_auto_schema(
+    tags=['Customer Profile'],
     method='get',
-    operation_description="Get current customer profile",
-    responses=user_profile_response,
-    security=[{'Bearer': []}]
+    operation_summary="Get Profile",
+    operation_description="Retrieve the profile of the currently authenticated customer.",
+    responses={
+        200: user_profile_response,
+        401: 'Authentication credentials were not provided.'
+    }
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -119,13 +130,14 @@ def customer_me(request):
     })
 
 @swagger_auto_schema(
+    tags=['Customer Auth'],
     method='post',
-    operation_description="Customer logout",
+    operation_summary="Customer Logout",
+    operation_description="Logout the currently authenticated customer.",
     responses={
-        200: "Successfully logged out",
-        401: "Unauthorized"
-    },
-    security=[{'Bearer': []}]
+        200: 'Successfully logged out',
+        401: 'Unauthorized'
+    }
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

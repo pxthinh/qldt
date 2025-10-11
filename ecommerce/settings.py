@@ -64,7 +64,21 @@ SWAGGER_SETTINGS = {
     'DEFAULT_PAGINATOR_INSPECTORS': [
         'drf_yasg.inspectors.DjangoRestResponsePagination',
         'drf_yasg.inspectors.CoreAPICompatInspector',
-    ]
+    ],
+    'REFETCH_SCHEMA_WITH_AUTH': True,
+    'REFETCH_SCHEMA_ON_LOGOUT': True,
+    'PERSIST_AUTH': True,
+    'FETCH_SCHEMA_WITH_QUERY': True,
+    'DEFAULT_FIELD_INSPECTORS': [
+        'drf_yasg.inspectors.CamelCaseJSONFilter',
+        'drf_yasg.inspectors.ReferencingSerializerInspector',
+        'drf_yasg.inspectors.RelatedFieldInspector',
+        'drf_yasg.inspectors.ChoiceFieldInspector',
+        'drf_yasg.inspectors.FileFieldInspector',
+        'drf_yasg.inspectors.DictFieldInspector',
+        'drf_yasg.inspectors.SimpleFieldInspector',
+        'drf_yasg.inspectors.StringDefaultFieldInspector',
+    ],
 }
 
 # Application definition
@@ -87,6 +101,7 @@ INSTALLED_APPS = [
     'api.brand',
     'api.category',
     'api.customer',
+    'api.order',
     'api.product',
     'api.staff',
 ]

@@ -52,12 +52,11 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     @swagger_auto_schema(
+        tags=['Admin Staff'],
         operation_summary="List all staff members",
         operation_description="""
         Returns a paginated list of staff members.
-        
-        ### Search Parameters
-        - `search`: Filter staff by username, email, or name (case-insensitive)
+        Only accessible by admin users.
         """,
         manual_parameters=[
             openapi.Parameter(
@@ -92,29 +91,19 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
                 description="List of staff members",
                 schema=StaffSerializer(many=True)
             ),
-            403: "Permission Denied"
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.'
         }
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
     @swagger_auto_schema(
+        tags=['Admin Staff'],
         operation_summary="Create a new staff member",
         operation_description="""
         Create a new staff member with the provided details.
-        
-        ### Required Fields
-        - `username`: Unique username for the staff member
-        - `email`: Email address (must be unique)
-        - `first_name`: First name
-        - `password`: Password (min 8 characters)
-        
-        ### Optional Fields
-        - `last_name`: Last name
-        - `phone`: Contact number
-        - `is_active`: Account status (default: true)
-        - `store_id`: Associated store ID
-        - `manager_id`: Manager's staff ID
+        The creator field will be automatically set to the current user.
         """,
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -136,27 +125,20 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
                 description="Staff member created successfully",
                 schema=StaffSerializer()
             ),
-            400: "Invalid input data",
-            403: "Permission denied"
+            400: 'Invalid input data',
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.'
         }
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
     @swagger_auto_schema(
+        tags=['Admin Staff'],
         operation_summary="Update a staff member",
         operation_description="""
         Update an existing staff member's details.
-        
-        ### Updateable Fields
-        - `email`: Email address
-        - `first_name`: First name
-        - `last_name`: Last name
-        - `phone`: Contact number
-        - `password`: New password (optional)
-        - `is_active`: Account status
-        - `store_id`: Associated store ID
-        - `manager_id`: Manager's staff ID
+        Only the staff member themselves or an admin can update the profile.
         """,
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -176,27 +158,27 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
                 description="Staff member updated successfully",
                 schema=StaffSerializer()
             ),
-            400: "Invalid input data",
-            403: "Permission denied",
-            404: "Staff member not found"
+            400: 'Invalid input data',
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.',
+            404: 'Staff member not found.'
         }
     )
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
     @swagger_auto_schema(
+        tags=['Admin Staff'],
         operation_summary="Deactivate a staff member",
         operation_description="""
         Soft deletes a staff member by setting is_active=False.
-        
-        ### Notes
-        - This is a soft delete operation
-        - The staff member can be reactivated using the activate endpoint
+        Only admins can deactivate staff members.
         """,
         responses={
-            204: "Staff member deactivated successfully",
-            403: "Permission denied",
-            404: "Staff member not found"
+            204: 'Staff member deactivated successfully',
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.',
+            404: 'Staff member not found.'
         }
     )
     def destroy(self, request, *args, **kwargs):
@@ -206,20 +188,22 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @swagger_auto_schema(
+        tags=['Admin Staff'],
         method='post',
         operation_summary="Activate a staff member",
         operation_description="""
         Reactivates a deactivated staff member by setting is_active=True.
-        
-        ### Notes
-        - Only works for deactivated staff members
-        - Returns 400 if staff member is already active
+        Only admins can activate staff members.
         """,
         responses={
-            200: "Staff member activated successfully",
+            200: openapi.Response(
+                description="Staff member activated successfully",
+                schema=StaffSerializer()
+            ),
             400: "Staff member is already active",
-            403: "Permission denied",
-            404: "Staff member not found"
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.',
+            404: 'Staff member not found.'
         }
     )
     @action(detail=True, methods=['post'])

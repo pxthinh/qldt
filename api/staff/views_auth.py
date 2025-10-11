@@ -167,12 +167,38 @@ class StaffProfileView(APIView):
     @swagger_auto_schema(
         operation_description="Get the profile of the currently authenticated staff member",
         responses={
-            200: StaffSerializer(),
-            401: 'Unauthorized - Invalid or expired token',
+            200: openapi.Response(
+                description="Successful operation",
+                schema=StaffSerializer(),
+                examples={
+                    "application/json": {
+                        "id": 1,
+                        "username": "admin",
+                        "email": "admin@example.com",
+                        "first_name": "Admin",
+                        "last_name": "User",
+                        "is_active": True,
+                        "is_admin": True
+                    }
+                }
+            ),
+            401: openapi.Response(
+                description="Unauthorized - Invalid or expired token",
+                examples={"application/json": {"detail": "Invalid token"}}
+            ),
+            403: openapi.Response(
+                description="Forbidden - Authentication credentials were not provided",
+                examples={"application/json": {"detail": "Authentication credentials were not provided."}}
+            )
         },
-        security=[{'Token': []}]
+        security=[{"Token": []}]
     )
     def get(self, request):
+        """
+        Retrieve the profile of the currently authenticated staff member.
+        
+        This endpoint requires a valid authentication token in the request header.
+        """
         try:
             # The StaffTokenAuthentication already verifies the token and sets request.user
             serializer = StaffSerializer(request.user)

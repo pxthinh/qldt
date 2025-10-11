@@ -5,6 +5,29 @@ from django.utils.crypto import get_random_string
 from datetime import timedelta
 from django.utils import timezone
 
+
+class Store(models.Model):
+    """Store model for managing retail locations."""
+    store_id = models.AutoField(primary_key=True)
+    store_name = models.CharField(max_length=255, db_index=True)
+    phone = models.CharField(max_length=25, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    street = models.CharField(max_length=255, blank=True, null=True)
+    city = models.CharField(max_length=255, blank=True, null=True)
+    state = models.CharField(max_length=10, blank=True, null=True)
+    zip_code = models.CharField(max_length=5, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.store_name
+
+    class Meta:
+        db_table = 'stores'
+        verbose_name = 'store'
+        verbose_name_plural = 'stores'
+        ordering = ['store_name']
+
 class Staff(models.Model):
     """Staff member model."""
     staff_id = models.AutoField(primary_key=True)
