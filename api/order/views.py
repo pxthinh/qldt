@@ -24,8 +24,8 @@ class IsCustomer(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and hasattr(request.user, 'customer'))
 
 @swagger_auto_schema(
-    tags=['Customer Orders'],
-    operation_description="Order management endpoints for customers only"
+    tags=['FE'],
+    operation_description="Order management endpoints"
 )
 class OrderViewSet(viewsets.ModelViewSet):
     """
@@ -40,11 +40,10 @@ class OrderViewSet(viewsets.ModelViewSet):
     search_fields = ['order_id', 'order_status']
     ordering_fields = ['order_date', 'required_date', 'shipped_date', 'order_status']
     parser_classes = [JSONParser, MultiPartParser, FormParser]
-
-    def get_serializer_class(self):
-        if getattr(self, 'swagger_fake_view', False):
-            return OrderSerializer  # Default serializer for schema generation
-            
+    
+    def get_swagger_tags(self):
+        return ['FE']
+        
         if self.action == 'create':
             return OrderCreateSerializer
         elif self.action in ['update', 'partial_update']:

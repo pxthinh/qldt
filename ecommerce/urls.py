@@ -62,7 +62,13 @@ schema_view = get_schema_view(
         path('api/admin/orders/', include('api.order.urls_admin')),
         
         # Staff authentication endpoints
-        path('api/staff/auth/', include('api.staff.urls'))
+        path('api/staff/auth/', include('api.staff.urls')),
+
+        #FE
+        path('api/product/', include('api.product.urls')),
+        path('api/category/', include('api.category.urls')),
+        path('api/brand/', include('api.brand.urls')),
+        path('api/orders/', include('api.order.urls')),
     ]
 )
 
