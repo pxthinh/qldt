@@ -51,12 +51,16 @@ schema_view = get_schema_view(
     validators=['flex', 'ssv'],
     urlconf='ecommerce.urls',
     patterns=[
+        # Admin API endpoints
         path('api/admin/category/', include('api.category.urls_admin')),
         path('api/admin/brand/', include('api.brand.urls_admin')),
         path('api/admin/customer/', include('api.customer.urls_admin')),
         path('api/admin/product/', include('api.product.urls_admin')),
         path('api/admin/staff/', include('api.staff.urls_admin')),
-        path('api/admin/orders/', include('api.order.urls_admin')),  # Include admin orders in schema
+        path('api/admin/orders/', include('api.order.urls_admin')),
+        
+        # Staff authentication endpoints
+        path('api/staff/auth/', include('api.staff.urls'))
     ]
 )
 

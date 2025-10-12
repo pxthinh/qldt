@@ -26,6 +26,7 @@ class StaffLoginView(APIView):
     
     @swagger_auto_schema(
         operation_description="Authenticate staff and get token",
+        tags=['Staff Auth'],
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=['username', 'password'],
@@ -113,6 +114,7 @@ class StaffLogoutView(APIView):
     
     @swagger_auto_schema(
         operation_description="Logout staff by deleting the authentication token",
+        tags=['Staff Auth'],
         responses={
             200: 'Successfully logged out',
             401: 'Unauthorized - Invalid or expired token',
@@ -166,6 +168,7 @@ class StaffProfileView(APIView):
     
     @swagger_auto_schema(
         operation_description="Get the profile of the currently authenticated staff member",
+        tags=['Staff Auth'],
         responses={
             200: openapi.Response(
                 description="Successful operation",
