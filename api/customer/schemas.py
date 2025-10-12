@@ -138,3 +138,37 @@ password_reset_response = {
     ),
     400: error_response
 }
+
+# Update Profile
+update_profile_request = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'first_name': openapi.Schema(type=openapi.TYPE_STRING, description="Customer's first name"),
+        'last_name': openapi.Schema(type=openapi.TYPE_STRING, description="Customer's last name"),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, format='email', description="New email address"),
+        'phone': openapi.Schema(type=openapi.TYPE_STRING, description="Phone number"),
+        'street': openapi.Schema(type=openapi.TYPE_STRING, description="Street address"),
+        'city': openapi.Schema(type=openapi.TYPE_STRING, description="City"),
+        'state': openapi.Schema(type=openapi.TYPE_STRING, description="State/Province"),
+        'zip_code': openapi.Schema(type=openapi.TYPE_STRING, description="ZIP/Postal code")
+    }
+)
+
+# Update Password
+update_password_request = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=['current_password', 'new_password'],
+    properties={
+        'current_password': openapi.Schema(
+            type=openapi.TYPE_STRING, 
+            format='password', 
+            description="Current password for verification"
+        ),
+        'new_password': openapi.Schema(
+            type=openapi.TYPE_STRING, 
+            format='password', 
+            description="New password (min 8 characters, at least 1 letter and 1 number)",
+            min_length=8
+        )
+    }
+)

@@ -5,15 +5,18 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.core import signing
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .models import Customer, RevokedAuthToken
-from .schemas import login_request, login_response, user_profile_response
+from .schemas import login_request, login_response, user_profile_response, update_profile_request, update_password_request
 
 AUTH_SALT = "customer-auth-token"
-AUTH_MAX_AGE = 60 * 60 * 24 * 7  # 7 ngày
+AUTH_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 def _json_body(request):
     try:
@@ -23,6 +26,7 @@ def _json_body(request):
 
 def _issue_token(customer_id: int) -> str:
     return signing.dumps({"id": customer_id, "iat": int(time.time())}, salt=AUTH_SALT)
+
 def _get_bearer_token(request) -> str | None:
     auth = request.META.get("HTTP_AUTHORIZATION", "")
     if not auth.lower().startswith("bearer "):
@@ -50,123 +54,382 @@ def _customer_from_token(request):
     except (signing.BadSignature, Customer.DoesNotExist):
         return None, JsonResponse({"detail": "Invalid token"}, status=401)
 
-@swagger_auto_schema(
-    tags=['Customer Auth'],
-    method='post',
-    operation_summary="Customer Login",
-    operation_description="Authenticate a customer and return an access token.",
-    request_body=login_request,
-    responses={
-        200: login_response,
-        400: 'Invalid input',
-        401: 'Invalid credentials',
-        403: 'Account is not active'
-    }
-)
-@api_view(['POST'])
-@csrf_exempt
-def customer_login(request):
-    """
-    Body JSON: {"user_name": "...", "password": "..."}
-    Trả về: token + thông tin customer (không bao gồm password)
-    """
-    body = _json_body(request)
-    user_name = (body.get("user_name") or "").strip()
-    password  = (body.get("password") or "").strip()
+class CustomerLoginView(APIView):
+    permission_classes = [AllowAny]
+    
+    @swagger_auto_schema(
+        tags=['Auth Customer'],
+        operation_summary="Customer Login",
+        operation_description="Authenticate customer and get access token",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['user_name', 'password'],
+            properties={
+                'user_name': openapi.Schema(type=openapi.TYPE_STRING, description='Customer username'),
+                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Customer password', format='password')
+            },
+            example={
+                'user_name': 'customer1',
+                'password': 'yourpassword123'
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Login successful",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'token': openapi.Schema(type=openapi.TYPE_STRING, description='JWT token for authentication'),
+                        'expires_in': openapi.Schema(type=openapi.TYPE_INTEGER, description='Token expiration time in seconds'),
+                        'customer': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'customer_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                'user_name': openapi.Schema(type=openapi.TYPE_STRING),
+                                'first_name': openapi.Schema(type=openapi.TYPE_STRING),
+                                'last_name': openapi.Schema(type=openapi.TYPE_STRING),
+                                'email': openapi.Schema(type=openapi.TYPE_STRING, format='email'),
+                                'phone': openapi.Schema(type=openapi.TYPE_STRING),
+                                'street': openapi.Schema(type=openapi.TYPE_STRING),
+                                'city': openapi.Schema(type=openapi.TYPE_STRING),
+                                'state': openapi.Schema(type=openapi.TYPE_STRING),
+                                'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
+                            }
+                        )
+                    }
+                )
+            ),
+            400: 'Invalid input',
+            401: 'Invalid credentials',
+            403: 'Account is not active'
+        }
+    )
+    
+    def post(self, request, *args, **kwargs):
+        body = _json_body(request)
+        user_name = (body.get("user_name") or "").strip()
+        password = (body.get("password") or "").strip()
 
-    if not user_name or not password:
-        return JsonResponse({"detail": "user_name and password are required"}, status=400)
+        if not user_name or not password:
+            return Response(
+                {"detail": "user_name and password are required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    try:
-        obj = Customer.objects.get(user_name__iexact=user_name)
-    except Customer.DoesNotExist:
-        return JsonResponse({"detail": "Invalid credentials"}, status=401)
+        try:
+            obj = Customer.objects.get(user_name=user_name)
+        except Customer.DoesNotExist:
+            return Response(
+                {"detail": "Invalid credentials"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-    if not obj.check_password(password):
-        return JsonResponse({"detail": "Invalid credentials"}, status=401)
+        if not obj.check_password(password):
+            return Response(
+                {"detail": "Invalid credentials"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-    if hasattr(obj, "is_email_verified") and not obj.is_email_verified:
-        return JsonResponse({"detail": "Email not verified"}, status=403)
+        if not obj.is_active:
+            return Response(
+                {"detail": "Account is not active"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-    token = _issue_token(obj.pk)
-    return JsonResponse({
-        "token": token,
-        "token_expires_in": AUTH_MAX_AGE,
-        "customer": {
+        token = _issue_token(obj.customer_id)
+        return Response({
+            "token": token,
+            "expires_in": AUTH_MAX_AGE,
+            "customer": {
+                "customer_id": obj.customer_id,
+                "user_name": obj.user_name,
+                "first_name": obj.first_name,
+                "last_name": obj.last_name,
+                "email": obj.email,
+                "phone": obj.phone,
+                "street": obj.street,
+                "city": obj.city,
+                "state": obj.state,
+                "zip_code": obj.zip_code,
+            }
+        }, status=status.HTTP_200_OK)
+
+class CustomerProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Auth Customer'],
+        operation_summary="Get Profile",
+        operation_description="Get current customer profile",
+        responses={
+            200: openapi.Response(
+                description="Customer profile",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'customer_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'user_name': openapi.Schema(type=openapi.TYPE_STRING),
+                        'first_name': openapi.Schema(type=openapi.TYPE_STRING),
+                        'last_name': openapi.Schema(type=openapi.TYPE_STRING),
+                        'email': openapi.Schema(type=openapi.TYPE_STRING, format='email'),
+                        'phone': openapi.Schema(type=openapi.TYPE_STRING),
+                        'street': openapi.Schema(type=openapi.TYPE_STRING),
+                        'city': openapi.Schema(type=openapi.TYPE_STRING),
+                        'state': openapi.Schema(type=openapi.TYPE_STRING),
+                        'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
+                        'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'date_joined': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+                    }
+                )
+            ),
+            401: 'Authentication credentials were not provided.'
+        },
+        security=[{'Bearer': []}]
+    )
+    
+    def get(self, request, *args, **kwargs):
+        obj, error = _customer_from_token(request)
+        if error:
+            return error
+        return Response({
             "customer_id": obj.customer_id,
             "user_name": obj.user_name,
             "first_name": obj.first_name,
             "last_name": obj.last_name,
             "email": obj.email,
             "phone": obj.phone,
-            "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
-        }
-    }, status=200)
+            "street": obj.street,
+            "city": obj.city,
+            "state": obj.state,
+            "zip_code": obj.zip_code,
+            "is_active": obj.is_active,
+            "is_staff": obj.is_staff,
+            "date_joined": obj.date_joined.isoformat() if obj.date_joined else None,
+        })
 
-@swagger_auto_schema(
-    tags=['Customer Profile'],
-    method='get',
-    operation_summary="Get Profile",
-    operation_description="Retrieve the profile of the currently authenticated customer.",
-    responses={
-        200: user_profile_response,
-        401: 'Authentication credentials were not provided.'
-    }
-)
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def customer_me(request):
-    obj, error = _customer_from_token(request)
-    if error:
-        return error
-    return JsonResponse({
-        "customer_id": obj.customer_id,
-        "user_name": obj.user_name,
-        "first_name": obj.first_name,
-        "last_name": obj.last_name,
-        "email": obj.email,
-        "phone": obj.phone,
-        "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
-    })
-
-@swagger_auto_schema(
-    tags=['Customer Auth'],
-    method='post',
-    operation_summary="Customer Logout",
-    operation_description="Logout the currently authenticated customer.",
-    responses={
-        200: 'Successfully logged out',
-        401: 'Unauthorized'
-    }
-)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@csrf_exempt
-def customer_logout(request):
-    """
-    Thu hồi Bearer token hiện tại (đưa vào blacklist đến khi hết hạn).
-    Header: Authorization: Bearer <token>
-    """
-    token = _get_bearer_token(request)
-    if not token:
-        return JsonResponse({"detail": "Missing Bearer token"}, status=401)
-
-    expires_at = timezone.now() + timedelta(seconds=AUTH_MAX_AGE)
-
-    try:
-        data = signing.loads(token, salt=AUTH_SALT, max_age=AUTH_MAX_AGE)
-        iat = data.get("iat")
-        if isinstance(iat, int):
-            issued_at = datetime.fromtimestamp(iat, tz=dt_timezone.utc)
-            expires_at = issued_at + timedelta(seconds=AUTH_MAX_AGE)
-    except signing.SignatureExpired:
-        return JsonResponse({"detail": "Already expired"}, status=200)
-    except signing.BadSignature:
-        return JsonResponse({"detail": "Logged out"}, status=200)
-
-    fp = _token_fingerprint(token)
-    RevokedAuthToken.objects.get_or_create(
-        fingerprint=fp,
-        defaults={"expires_at": expires_at},
+class CustomerLogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Auth Customer'],
+        operation_summary="Customer Logout",
+        operation_description="Logout the currently authenticated customer.",
+        responses={
+            200: openapi.Response(
+                description="Successfully logged out",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING)
+                    },
+                    example={
+                        'detail': 'Successfully logged out'
+                    }
+                )
+            ),
+            401: 'Unauthorized - Invalid or missing token'
+        },
+        security=[{'Bearer': []}]
     )
-    return JsonResponse({"detail": "Logged out"}, status=200)
+    
+    def post(self, request, *args, **kwargs):
+        token = _get_bearer_token(request)
+        if not token:
+            return Response(
+                {"detail": "Missing Bearer token"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        fp = _token_fingerprint(token)
+        expires_at = timezone.now() + timedelta(seconds=AUTH_MAX_AGE)
+
+        try:
+            data = signing.loads(token, salt=AUTH_SALT, max_age=AUTH_MAX_AGE)
+            iat = data.get("iat")
+            if isinstance(iat, int):
+                issued_at = datetime.fromtimestamp(iat, tz=dt_timezone.utc)
+                expires_at = issued_at + timedelta(seconds=AUTH_MAX_AGE)
+                
+            # Add token to revocation list
+            RevokedAuthToken.objects.create(
+                fingerprint=fp,
+                expires_at=expires_at
+            )
+            
+            return Response(
+                {"detail": "Successfully logged out"}, 
+                status=status.HTTP_200_OK
+            )
+            
+        except signing.SignatureExpired:
+            # If token is expired, still add it to revocation list
+            RevokedAuthToken.objects.create(
+                fingerprint=fp,
+                expires_at=expires_at
+            )
+            return Response(
+                {"detail": "Token already expired"}, 
+                status=status.HTTP_200_OK
+            )
+            
+        except signing.BadSignature:
+            return Response(
+                {"detail": "Invalid token"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+
+class CustomerUpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Customer'],
+        operation_summary="Update Profile",
+        operation_description="Update customer profile information",
+        request_body=update_profile_request,
+        responses={
+            200: openapi.Response(
+                description="Profile updated successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+                        'customer': user_profile_response
+                    },
+                    example={
+                        'detail': 'Profile updated successfully',
+                        'customer': {
+                            'customer_id': 1,
+                            'user_name': 'johndoe',
+                            'first_name': 'John',
+                            'last_name': 'Doe',
+                            'email': 'john@example.com',
+                            'is_email_verified': True
+                        }
+                    }
+                )
+            ),
+            400: 'Invalid data'
+        },
+        security=[{'Bearer': []}]
+    )
+    
+    def put(self, request, *args, **kwargs):
+        customer = request.user.customer
+        data = request.data
+        
+        # Update fields if they are provided in the request
+        if 'first_name' in data:
+            customer.first_name = data['first_name'].strip()
+        if 'last_name' in data:
+            customer.last_name = data['last_name'].strip()
+        if 'email' in data and data['email'].strip().lower() != customer.email:
+            new_email = data['email'].strip().lower()
+            if Customer.objects.filter(email__iexact=new_email).exists():
+                return Response(
+                    {"detail": "Email already in use"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            customer.email = new_email
+            customer.is_email_verified = False
+            # TODO: Send verification email for the new email
+        if 'phone' in data:
+            customer.phone = data['phone'].strip()
+        if 'street' in data:
+            customer.street = data['street']
+        if 'city' in data:
+            customer.city = data['city']
+        if 'state' in data:
+            customer.state = data['state']
+        if 'zip_code' in data:
+            customer.zip_code = data['zip_code']
+        
+        customer.save()
+        
+        return Response({
+            'detail': 'Profile updated successfully',
+            'customer': {
+                'customer_id': customer.customer_id,
+                'user_name': customer.user_name,
+                'first_name': customer.first_name,
+                'last_name': customer.last_name,
+                'email': customer.email,
+                'is_email_verified': customer.is_email_verified,
+                'phone': customer.phone,
+                'street': customer.street,
+                'city': customer.city,
+                'state': customer.state,
+                'zip_code': customer.zip_code
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class CustomerUpdatePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Customer'],
+        operation_summary="Update Password",
+        operation_description="Update customer password",
+        request_body=update_password_request,
+        responses={
+            200: openapi.Response(
+                description="Password updated successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING)
+                    },
+                    example={
+                        'detail': 'Password updated successfully'
+                    }
+                )
+            ),
+            400: 'Invalid current password or new password does not meet requirements'
+        },
+        security=[{'Bearer': []}]
+    )
+    
+    def put(self, request, *args, **kwargs):
+        customer = request.user.customer
+        data = request.data
+        
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        
+        if not current_password or not new_password:
+            return Response(
+                {"detail": "Both current_password and new_password are required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Verify current password
+        if not customer.check_password(current_password):
+            return Response(
+                {"detail": "Current password is incorrect"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Check if new password is different from current password
+        if current_password == new_password:
+            return Response(
+                {"detail": "New password must be different from current password"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # TODO: Add password validation (length, complexity, etc.)
+        
+        # Update password
+        customer.set_password(new_password)
+        customer.save()
+        
+        # Invalidate all existing tokens
+        RevokedAuthToken.objects.filter(
+            fingerprint__startswith=f"{customer.customer_id}:"
+        ).delete()
+        
+        return Response(
+            {"detail": "Password updated successfully"}, 
+            status=status.HTTP_200_OK
+        )

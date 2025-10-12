@@ -97,6 +97,26 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+        
+    @swagger_auto_schema(
+        tags=['Admin Staff'],
+        operation_summary="Get staff member details",
+        operation_description="""
+        Retrieve details of a specific staff member by ID.
+        Only accessible by admin users.
+        """,
+        responses={
+            200: openapi.Response(
+                description="Staff member details",
+                schema=StaffSerializer()
+            ),
+            401: 'Authentication credentials were not provided.',
+            403: 'You do not have permission to perform this action.',
+            404: 'Staff member not found.'
+        }
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
 
     @swagger_auto_schema(
         tags=['Admin Staff'],

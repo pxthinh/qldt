@@ -48,6 +48,8 @@ def _send_reset_email(request, customer: Customer):
 
 @swagger_auto_schema(
     method='post',
+    tags=['Customer'],
+    operation_summary="Request Password Reset",
     operation_description="Request a password reset email",
     request_body=password_reset_request_schema,
     responses=password_reset_response
@@ -80,6 +82,8 @@ def password_reset_request(request):
 
 @swagger_auto_schema(
     method='post',
+    tags=['Customer'],
+    operation_summary="Reset Password",
     operation_description="Reset password with a valid token",
     request_body=password_reset_confirm_schema,
     responses=password_reset_response

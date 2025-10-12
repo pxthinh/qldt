@@ -41,6 +41,8 @@ def _send_verification_email(request, customer: Customer):
 
 @swagger_auto_schema(
     method='post',
+    tags=['Customer'],
+    operation_summary="Register Customer",
     operation_description="Register a new customer account",
     request_body=register_request,
     responses=register_response
@@ -100,6 +102,8 @@ def customer_register(request):
 
 @swagger_auto_schema(
     method='get',
+    tags=['Customer'],
+    operation_summary="Confirm Email",
     operation_description="Confirm customer email with verification token",
     responses={
         200: "Email confirmed successfully",
@@ -135,6 +139,8 @@ def customer_confirm_email(request):
 
 @swagger_auto_schema(
     method='post',
+    tags=['Customer'],
+    operation_summary="Resend Confirmation",
     operation_description="Resend email confirmation",
     request_body=openapi.Schema(
         type=openapi.TYPE_OBJECT,
