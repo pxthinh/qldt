@@ -26,9 +26,7 @@ from rest_framework.permissions import AllowAny
 
 # Swagger configuration
 def schema_exclude_path(path, method, path_regex, method_regex):
-    # Exclude admin orders from schema
-    if path.startswith('/api/admin/orders/'):
-        return None
+    # Include all paths in schema
     return True
 
 schema_view = get_schema_view(
@@ -71,7 +69,7 @@ urlpatterns = [
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     path('', RedirectView.as_view(url='/swagger/', permanent=False), name='swagger-redirect'),
-    
+
     # API Endpoints
     path('api/customer/', include('api.customer.urls')),
     path('api/product/', include('api.product.urls')),

@@ -1,82 +1,300 @@
-from datetime import datetime, timedelta
-from django.db import models
-from django.db.models import F, Sum, DecimalField, Q, Count
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from rest_framework import viewsets, status, filters, permissions, serializers
-from rest_framework.decorators import action
-from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from django.http import JsonResponse, HttpResponseNotAllowed
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.utils.timezone import now
+from rest_framework.decorators import api_view, parser_classes, action
+from rest_framework.viewsets import ViewSet
+from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
+from rest_framework import status
 from rest_framework.response import Response
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
 
 from .models import Order, OrderItem
-from .serializers import OrderSerializer, OrderItemSerializer, OrderUpdateSerializer, OrderCreateSerializer
+from .serializers import OrderSerializer
+from .schema import (
+    order_status_query, date_after_query, date_before_query,
+    order_create_request, order_update_request,
+    order_detail_response, order_list_response, order_id_param
+)
 
-class OrderViewSet(viewsets.ModelViewSet):
+
+def _staff_required(view):
+    return login_required(user_passes_test(lambda u: u.is_staff)(view))
+
+class OrderAdminViewSet(ViewSet):
     """
-    Admin API endpoint for managing orders.
-    
-    This viewset provides the following actions:
-    - list: Get a paginated list of all orders with filtering and search
-    - create: Create a new order (admin only)
-    - retrieve: Get details of a specific order
-    - update: Update an existing order
-    - partial_update: Partially update an order
-    - destroy: Cancel/delete an order
-    - status: Update order status
-    - stats: Get order statistics
-    - export: Export orders to CSV/Excel
+    ViewSet for handling Order operations in the admin interface.
     """
-    schema = None  # Disable Swagger documentation for this viewset
-    queryset = Order.objects.all().order_by('-order_date')
-    serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = [
-        'order_id',
-        'customer__email',
-        'customer__first_name',
-        'customer__last_name',
-        'shipping_address__phone',
-        'tracking_number'
-    ]
-    ordering_fields = [
-        'order_date', 'required_date', 'shipped_date', 
-        'order_status', 'total_amount', 'created_at'
-    ]
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    @swagger_auto_schema(
+        operation_id="order_list",
+        manual_parameters=[order_status_query, date_after_query, date_before_query],
+        responses={
+            status.HTTP_200_OK: order_list_response,
+            status.HTTP_400_BAD_REQUEST: openapi.Response(
+                "Bad Request",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "status": openapi.Schema(type=openapi.TYPE_STRING),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='List Orders (Admin)',
+        operation_description='Returns a list of all orders, optionally filtered by status and date range.'
+    )
+    def list(self, request):
+        """
+        List all orders with optional filtering.
+        """
+        qs = Order.objects.all()
         
-        # Handle filtering by order_status
-        order_status = self.request.query_params.get('order_status')
-        if order_status:
-            statuses = order_status.split(',')
-            queryset = queryset.filter(order_status__in=statuses)
+        # Apply filters
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            statuses = [s.strip().lower() for s in status_filter.split(',')]
+            qs = qs.filter(status__in=statuses)
             
-        # Handle date range filtering
-        date_after = self.request.query_params.get('order_date_after')
-        date_before = self.request.query_params.get('order_date_before')
+        date_after = request.query_params.get('date_after')
         if date_after:
-            queryset = queryset.filter(order_date__gte=date_after)
+            qs = qs.filter(created_at__gte=date_after)
+            
+        date_before = request.query_params.get('date_before')
         if date_before:
-            queryset = queryset.filter(order_date__lte=date_before)
-            
-        # Handle amount range filtering
-        amount_min = self.request.query_params.get('total_amount_min')
-        amount_max = self.request.query_params.get('total_amount_max')
-        if amount_min:
-            queryset = queryset.filter(total_amount__gte=float(amount_min))
-        if amount_max:
-            queryset = queryset.filter(total_amount__lte=float(amount_max))
-            
-        # Handle customer filter
-        customer_id = self.request.query_params.get('customer')
-        if customer_id:
-            queryset = queryset.filter(customer_id=customer_id)
-            
-        return queryset
+            qs = qs.filter(created_at__lte=date_before)
+        
+        serializer = OrderSerializer(qs.order_by("-created_at"), many=True)
+        return Response(serializer.data)
     
+    @swagger_auto_schema(
+        operation_id="order_create",
+        request_body=order_create_request,
+        responses={
+            status.HTTP_201_CREATED: order_detail_response,
+            status.HTTP_400_BAD_REQUEST: openapi.Response(
+                "Bad Request",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "status": openapi.Schema(type=openapi.TYPE_STRING),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='Create Order (Admin)',
+        operation_description='Create a new order with the provided data.'
+    )
+    def create(self, request):
+        """
+        Create a new order.
+        """
+        try:
+            data = request.data
+            if hasattr(data, 'dict'):  # Handle QueryDict from form data
+                data = data.dict()
+                
+            serializer = OrderSerializer(data=data)
+            if serializer.is_valid():
+                order = serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                
+            return Response({
+                "status": "error",
+                "message": "Validation error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Failed to create order: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if request.method == 'GET':
+            # GET method - List all orders
+            qs = Order.objects.all()
+            
+            # Apply filters
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                statuses = [s.strip().lower() for s in status_filter.split(',')]
+                qs = qs.filter(status__in=statuses)
+                
+            date_after = request.query_params.get('date_after')
+            if date_after:
+                qs = qs.filter(created_at__gte=date_after)
+                
+            date_before = request.query_params.get('date_before')
+            if date_before:
+                qs = qs.filter(created_at__lte=date_before)
+            
+            serializer = OrderSerializer(qs.order_by("-created_at"), many=True)
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            # POST method - Create a new order
+            try:
+                data = request.data
+                if hasattr(data, 'dict'):  # Handle QueryDict from form data
+                    data = data.dict()
+                    
+                serializer = OrderSerializer(data=data)
+                if serializer.is_valid():
+                    order = serializer.save()
+                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                    
+                return Response({
+                    "status": "error",
+                    "message": "Validation error",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+            except Exception as e:
+                return Response({
+                    "status": "error",
+                    "message": f"Failed to create order: {str(e)}"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @swagger_auto_schema(
+        operation_id="order_retrieve",
+        responses={
+            status.HTTP_200_OK: order_detail_response,
+            status.HTTP_404_NOT_FOUND: 'Order not found'
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='Retrieve Order (Admin)',
+        operation_description='Retrieve details of a specific order by ID.'
+    )
+    def retrieve(self, request, pk=None):
+        """
+        Retrieve a specific order by ID.
+        """
+        try:
+            order = Order.objects.get(pk=pk)
+            serializer = OrderSerializer(order)
+            return Response(serializer.data)
+        except Order.DoesNotExist:
+            return Response({"detail": "Not found"}, status=404)
+
+    @swagger_auto_schema(
+        operation_id="order_update",
+        request_body=order_update_request,
+        responses={
+            status.HTTP_200_OK: order_detail_response,
+            status.HTTP_400_BAD_REQUEST: 'Invalid input',
+            status.HTTP_404_NOT_FOUND: 'Order not found',
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='Update Order (Admin)',
+        operation_description='Update an order by ID.'
+    )
+    def update(self, request, pk=None):
+        """
+        Update an order by ID.
+        """
+        try:
+            order = Order.objects.get(pk=pk)
+            data = request.data
+            if hasattr(data, 'dict'):  # Handle QueryDict from form data
+                data = data.dict()
+                
+            serializer = OrderSerializer(order, data=data, partial=False)
+            if serializer.is_valid():
+                updated_order = serializer.save()
+                return Response(OrderSerializer(updated_order).data)
+                
+            return Response({
+                "status": "error",
+                "message": "Validation error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Order.DoesNotExist:
+            return Response({"detail": "Not found"}, status=404)
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Failed to update order: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @swagger_auto_schema(
+        operation_id="order_partial_update",
+        request_body=order_update_request,
+        responses={
+            status.HTTP_200_OK: order_detail_response,
+            status.HTTP_400_BAD_REQUEST: 'Invalid input',
+            status.HTTP_404_NOT_FOUND: 'Order not found',
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='Partially Update Order (Admin)',
+        operation_description='Partially update an order by ID.'
+    )
+    def partial_update(self, request, pk=None):
+        """
+        Partially update an order by ID.
+        """
+        try:
+            order = Order.objects.get(pk=pk)
+            data = request.data
+            if hasattr(data, 'dict'):  # Handle QueryDict from form data
+                data = data.dict()
+                
+            serializer = OrderSerializer(order, data=data, partial=True)
+            if serializer.is_valid():
+                updated_order = serializer.save()
+                return Response(OrderSerializer(updated_order).data)
+                
+            return Response({
+                "status": "error",
+                "message": "Validation error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Order.DoesNotExist:
+            return Response({"detail": "Not found"}, status=404)
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Failed to update order: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @swagger_auto_schema(
+        operation_id="order_delete",
+        responses={
+            status.HTTP_204_NO_CONTENT: 'Order successfully deleted',
+            status.HTTP_404_NOT_FOUND: 'Order not found',
+        },
+        security=[{"Bearer": []}],
+        tags=['Admin Orders'],
+        operation_summary='Delete Order (Admin)',
+        operation_description='Delete an order by ID.'
+    )
+    def destroy(self, request, pk=None):
+        """
+        Delete an order by ID.
+        """
+        try:
+            order = Order.objects.get(pk=pk)
+            order.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Order.DoesNotExist:
+            return Response({"detail": "Not found"}, status=404)
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": f"Failed to delete order: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     def get_serializer_class(self):
         if self.action == 'items' and self.request.method == 'POST':
             return OrderItemSerializer

@@ -1,17 +1,14 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views_admin as views
+from .views_admin import OrderAdminViewSet
 
-# Create a custom view that excludes from schema
-class NoSchemaViewSet(views.OrderViewSet):
-    def get_schema_fields(self, view):
-        return []
+app_name = 'admin_orders'
 
-# Use the default router but with our custom view
+# Create a router and register our viewsets with it
 router = DefaultRouter()
-router.register(r'admin/orders', NoSchemaViewSet, basename='admin-order')
+router.register(r'', OrderAdminViewSet, basename='admin-order')
 
-# We'll handle order items within the OrderViewSet
+# The API URLs are now determined automatically by the router
 urlpatterns = [
     path('', include(router.urls)),
 ]
