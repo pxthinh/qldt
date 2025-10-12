@@ -18,8 +18,24 @@ from .schema import (
 )
 
 
-def _staff_required(view):
-    return login_required(user_passes_test(lambda u: u.is_staff)(view))
+from functools import wraps
+from django.http import JsonResponse
+
+def _staff_required(view_func):
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse(
+                {"detail": "Authentication credentials were not provided."},
+                status=403
+            )
+        if not request.user.is_staff:
+            return JsonResponse(
+                {"detail": "You do not have permission to perform this action."},
+                status=403
+            )
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
 
 
 @swagger_auto_schema(

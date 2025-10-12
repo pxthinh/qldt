@@ -1,8 +1,9 @@
 from typing import Mapping
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import status
+from rest_framework.decorators import api_view
+from django.utils.decorators import method_decorator
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db.models import Q
@@ -10,10 +11,7 @@ from django.db.models import Q
 # Absolute imports for better reliability
 from api.customer.models import Customer
 from api.customer.serializers import CustomerSerializer
-
-# ===== Helpers =====
-def _staff_required(view):
-    return login_required(user_passes_test(lambda u: u.is_staff)(view))
+from api.core.decorators import staff_required
 
 def _json_body(request):
     try:
@@ -55,8 +53,8 @@ def _sanitize_update(body: Mapping[str, str]) -> dict:
     return out
 
 # ================== LIST + CREATE ==================
+@method_decorator(staff_required(), name='dispatch')
 class CustomerAdminListCreate(APIView):
-    permission_classes = [permissions.IsAdminUser]
     
     @swagger_auto_schema(
         tags=['Admin Customer'],
@@ -145,8 +143,8 @@ class CustomerAdminListCreate(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@method_decorator(staff_required(), name='dispatch')
 class CustomerAdminDetail(APIView):
-    permission_classes = [permissions.IsAdminUser]
     
     def get_object(self, pk):
         try:

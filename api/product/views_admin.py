@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.contrib.auth.decorators import login_required, user_passes_test
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -7,13 +8,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.core.paginator import Paginator
-
+from ..core.decorators import staff_required as _staff_required
 from .models import Product
 from .schema import (
     product_list_get_schema, product_create_schema,
     product_retrieve_schema, product_update_schema, product_delete_schema,
     product_name_query, brand_id_query, category_id_query
 )
+
+# Using the centralized staff_required decorator from core.decorators
 
 def _get_paginated_response(queryset, request):
     page = request.query_params.get('page', 1)
@@ -51,6 +54,7 @@ def _get_paginated_response(queryset, request):
 @api_view(['GET', 'POST'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def product_admin_list(request):
     if request.method == 'GET':
         # Handle GET request - List products (non-deleted by default)
@@ -149,6 +153,7 @@ def product_admin_list(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def product_admin_detail(request, id):
     # Get product including soft-deleted ones
     product = get_object_or_404(Product.objects.all(), pk=id)

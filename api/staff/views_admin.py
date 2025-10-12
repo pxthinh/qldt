@@ -1,10 +1,34 @@
-from rest_framework import status, viewsets, permissions
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.permissions import BasePermission
+from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSetMixin
+from django.utils.decorators import method_decorator
+from ..core.decorators import staff_required
 from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+
+
+class IsStaffUser(BasePermission):
+    """
+    Allows access only to staff users.
+    Returns 403 for both unauthenticated and non-staff users.
+    """
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return True
 
 from .models import Staff
 from .serializers import StaffSerializer, StaffCreateUpdateSerializer
@@ -26,8 +50,15 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
     - `activate`: Reactivate a deactivated staff member
     """
     queryset = Staff.objects.all()
-    permission_classes = [permissions.IsAdminUser]
     http_method_names = ['get', 'post', 'put', 'delete']
+    
+    def get_permissions(self):
+        # No permission classes needed as we're using the staff_required decorator
+        return []
+    
+    @method_decorator(staff_required(require_manager=True))
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:

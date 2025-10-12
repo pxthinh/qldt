@@ -3,10 +3,13 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Q
 from django.core.paginator import Paginator
+from ..core.decorators import staff_required as _staff_required
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
+from functools import wraps
+
 from .models import Category
 from .schema import (
     category_list_get_schema, category_create_schema,
@@ -44,6 +47,7 @@ def _get_paginated_response(queryset, request):
 @api_view(['GET', 'POST'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def category_admin_list(request):
     if request.method == 'GET':
         # Handle GET request - List categories
@@ -123,6 +127,7 @@ def category_admin_list(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def category_admin_detail(request, id):
     try:
         category = Category.objects.get(pk=id)

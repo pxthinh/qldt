@@ -1,7 +1,7 @@
 from django.http import JsonResponse, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
-from django.contrib.auth.decorators import login_required, user_passes_test
 from django.utils.timezone import now
+from ..core.decorators import staff_required as _staff_required
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework import status
@@ -15,9 +15,7 @@ from .schema import (
 )
 
 
-def _staff_required(view):
-    return login_required(user_passes_test(lambda u: u.is_staff)(view))
-
+# Using the centralized staff_required decorator from core.decorators
 
 @swagger_auto_schema(
     method='get',
@@ -54,6 +52,7 @@ def _staff_required(view):
 @api_view(['GET', 'POST'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def brand_admin_list(request):
     if request.method == 'GET':
         # GET method - List all brands
@@ -156,6 +155,7 @@ def brand_admin_list(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
+@_staff_required
 def brand_admin_detail(request, id: int):
     try:
         obj = Brand.objects.get(pk=id)
