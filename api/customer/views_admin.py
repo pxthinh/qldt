@@ -1,11 +1,15 @@
-import json
 from typing import Mapping
-from django.http import JsonResponse, HttpResponseNotAllowed
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from django.contrib.auth.decorators import login_required, user_passes_test
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from rest_framework.decorators import api_view, permission_classes
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from django.db.models import Q
-from .models import Customer
+
+# Absolute imports for better reliability
+from api.customer.models import Customer
+from api.customer.serializers import CustomerSerializer
 
 # ===== Helpers =====
 def _staff_required(view):
@@ -51,175 +55,167 @@ def _sanitize_update(body: Mapping[str, str]) -> dict:
     return out
 
 # ================== LIST + CREATE ==================
-# @_staff_required               # bật khi cần bảo vệ bằng session admin
-@require_http_methods(["GET", "POST"])
-@csrf_exempt
-def customer_admin_list(request):
-    # -------- GET (list/search) --------
-    if request.method == "GET":
-        qs = Customer.objects.all()
-
-        # search: q (username, name, email, phone)
-        q = (request.GET.get("q") or "").strip()
-        if q:
-            qs = qs.filter(
-                Q(user_name__icontains=q)
-                | Q(first_name__icontains=q)
-                | Q(last_name__icontains=q)
-                | Q(email__icontains=q)
-                | Q(phone__icontains=q)
+class CustomerAdminListCreate(APIView):
+    permission_classes = [permissions.IsAdminUser]
+    
+    @swagger_auto_schema(
+        tags=['Admin Customer'],
+        operation_summary="List all customers",
+        operation_description="Retrieve a list of all customers (admin only)",
+        manual_parameters=[
+            openapi.Parameter(
+                'search', 
+                openapi.IN_QUERY, 
+                description="Search by username, email, or name", 
+                type=openapi.TYPE_STRING
+            ),
+            openapi.Parameter(
+                'is_active', 
+                openapi.IN_QUERY, 
+                description="Filter by active status", 
+                type=openapi.TYPE_BOOLEAN
+            ),
+            openapi.Parameter(
+                'page', 
+                openapi.IN_QUERY, 
+                description="Page number", 
+                type=openapi.TYPE_INTEGER,
+                default=1
+            ),
+            openapi.Parameter(
+                'page_size', 
+                openapi.IN_QUERY, 
+                description="Number of items per page",
+                type=openapi.TYPE_INTEGER,
+                default=20
             )
-
-        # filter chi tiết
-        username = (request.GET.get("username") or "").strip()
-        if username:
-            qs = qs.filter(user_name__icontains=username)
-
-        email = (request.GET.get("email") or "").strip()
-        if email:
-            qs = qs.filter(email__icontains=email)
-
-        phone = (request.GET.get("phone") or "").strip()
-        if phone:
-            qs = qs.filter(phone__icontains=phone)
-
-        # ordering
-        order_by_key = (request.GET.get("order_by") or "id").strip().lstrip("+").lower()
-        direction = (request.GET.get("order") or "desc").strip().lower()  # asc|desc
-        order_field = _FIELD_MAP.get(order_by_key, "customer_id")
-        if direction == "desc":
-            order_field = "-" + order_field
-        qs = qs.order_by(order_field)
-
-        # pagination (page/page_size ưu tiên; fallback offset/limit)
-        page = request.GET.get("page")
-        page_size = request.GET.get("page_size")
-        if page or page_size:
-            page = _to_int(page, default=1, min_val=1)
-            page_size = _to_int(page_size, default=20, min_val=1, max_val=100)
-            total = qs.count()
-            offset = (page - 1) * page_size
-            qs = qs[offset : offset + page_size]
-        else:
-            offset = _to_int(request.GET.get("offset"), default=0, min_val=0)
-            limit = _to_int(request.GET.get("limit"), default=0, min_val=0, max_val=100)
-            total = qs.count()
-            if limit > 0:
-                qs = qs[offset : offset + limit]
-            page_size = limit if limit > 0 else total or 1
-            page = (offset // page_size) + 1 if page_size else 1
-
-        items = list(
-            qs.values(
-                "customer_id",
-                "user_name",
-                "first_name", "last_name",
-                "email", "phone",
-                "street", "city", "state", "zip_code",
-            )
-        )
-        return JsonResponse({
-            "items": items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "order_by": order_by_key,
-            "order": direction if direction in ("asc", "desc") else "desc",
-        })
-
-    body = _json_body(request)
-    user_name = (body.get("user_name") or "").strip()
-    password  = (body.get("password") or "").strip()
-    first_name = (body.get("first_name") or "").strip()
-    last_name  = body.get("last_name")
-    email      = body.get("email")
-    phone      = body.get("phone")
-    street     = body.get("street")
-    city       = body.get("city")
-    state      = body.get("state")
-    zip_code   = body.get("zip_code")
-
-    if not user_name:
-        return JsonResponse({"detail": "user_name is required"}, status=400)
-    if not password:
-        return JsonResponse({"detail": "password is required"}, status=400)
-    if Customer.objects.filter(user_name__iexact=user_name).exists():
-        return JsonResponse({"detail": "user_name already exists"}, status=400)
-    if Customer.objects.filter(email__iexact=email).exists():
-        return JsonResponse({"detail": "email already exists"}, status=400)
-
-    obj = Customer(
-        user_name=user_name,
-        first_name=first_name,
-        last_name=last_name,
-        email=email,
-        phone=phone,
-        street=street, city=city, state=state, zip_code=zip_code,
+        ],
+        responses={
+            200: openapi.Response('List of customers', CustomerSerializer(many=True)),
+            403: 'You do not have permission to perform this action.'
+        }
     )
-    obj.set_password(password)    # hash an toàn
-    obj.save()
-
-    return JsonResponse({
-        "customer_id": obj.customer_id,
-        "user_name": obj.user_name,
-        "first_name": obj.first_name, "last_name": obj.last_name,
-        "email": obj.email, "phone": obj.phone,
-        "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
-    }, status=201)
-
-# @_staff_required
-@require_http_methods(["GET", "PUT", "PATCH", "DELETE"])
-@csrf_exempt
-def customer_admin_detail(request, id: int):
-    try:
-        obj = Customer.objects.get(pk=id)
-    except Customer.DoesNotExist:
-        return JsonResponse({"detail": "Not found"}, status=404)
-
-    # -------- GET (detail) --------
-    if request.method == "GET":
-        return JsonResponse({
-            "customer_id": obj.customer_id,
-            "user_name": obj.user_name,
-            "first_name": obj.first_name, "last_name": obj.last_name,
-            "email": obj.email, "phone": obj.phone,
-            "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
+    def get(self, request, format=None):
+        queryset = Customer.objects.all()
+        
+        # Apply filters
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(user_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search)
+            )
+            
+        is_active = request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+            
+        # Pagination
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        serializer = CustomerSerializer(queryset[start:end], many=True)
+        return Response({
+            'count': queryset.count(),
+            'next': f"?page={page + 1}&page_size={page_size}" if end < queryset.count() else None,
+            'previous': f"?page={page - 1}&page_size={page_size}" if start > 0 else None,
+            'results': serializer.data
         })
+        
+    @swagger_auto_schema(
+        tags=['Admin Customer'],
+        operation_summary="Create a new customer",
+        operation_description="Create a new customer (admin only)",
+        request_body=CustomerSerializer,
+        responses={
+            201: openapi.Response('Customer created successfully', CustomerSerializer),
+            400: 'Invalid input data',
+            403: 'You do not have permission to perform this action.'
+        }
+    )
+    def post(self, request, format=None):
+        serializer = CustomerSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    if request.method in ("PUT", "PATCH"):
-        body = _json_body(request)
-        data = _sanitize_update(body)
 
-        if "user_name" in data:
-            new_username = (data["user_name"] or "").strip()
-            if not new_username:
-                return JsonResponse({"detail": "user_name cannot be empty"}, status=400)
-            if Customer.objects.exclude(pk=obj.pk).filter(user_name__iexact=new_username).exists():
-                return JsonResponse({"detail": "user_name already exists"}, status=400)
-            obj.user_name = new_username
-
-        if "password" in data:
-            raw = (data["password"] or "").strip()
-            if not raw:
-                return JsonResponse({"detail": "password cannot be empty"}, status=400)
-            if not obj.check_password(raw):
-                obj.set_password(raw)
-
-        for k in ["first_name", "last_name", "email", "phone", "street", "city", "state", "zip_code"]:
-            if k in data:
-                setattr(obj, k, data[k])
-
-        obj.save()
-        return JsonResponse({
-            "customer_id": obj.customer_id,
-            "user_name": obj.user_name,
-            "first_name": obj.first_name, "last_name": obj.last_name,
-            "email": obj.email, "phone": obj.phone,
-            "street": obj.street, "city": obj.city, "state": obj.state, "zip_code": obj.zip_code,
-        })
-
-    if request.method == "DELETE":
-        obj.delete()
-        return JsonResponse({"detail": "deleted"}, status=204)
-
-    return HttpResponseNotAllowed(["GET", "PUT", "PATCH", "DELETE"])
+class CustomerAdminDetail(APIView):
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get_object(self, pk):
+        try:
+            return Customer.objects.get(pk=pk)
+        except Customer.DoesNotExist:
+            return None
+    
+    @swagger_auto_schema(
+        tags=['Admin Customer'],
+        operation_summary="Retrieve a customer",
+        operation_description="Retrieve details of a specific customer (admin only)",
+        responses={
+            200: openapi.Response('Customer details', CustomerSerializer),
+            403: 'You do not have permission to perform this action.',
+            404: 'Customer not found.'
+        }
+    )
+    def get(self, request, pk, format=None):
+        customer = self.get_object(pk)
+        if not customer:
+            return Response(
+                {"detail": "Customer not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        serializer = CustomerSerializer(customer)
+        return Response(serializer.data)
+    
+    @swagger_auto_schema(
+        tags=['Admin Customer'],
+        operation_summary="Update a customer",
+        operation_description="Update details of a specific customer (admin only)",
+        request_body=CustomerSerializer,
+        responses={
+            200: openapi.Response('Customer updated successfully', CustomerSerializer),
+            400: 'Invalid input data',
+            403: 'You do not have permission to perform this action.',
+            404: 'Customer not found.'
+        }
+    )
+    def put(self, request, pk, format=None):
+        customer = self.get_object(pk)
+        if not customer:
+            return Response(
+                {"detail": "Customer not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        serializer = CustomerSerializer(customer, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @swagger_auto_schema(
+        tags=['Admin Customer'],
+        operation_summary="Delete a customer",
+        operation_description="Delete a specific customer (admin only)",
+        responses={
+            204: 'Customer deleted successfully',
+            403: 'You do not have permission to perform this action.',
+            404: 'Customer not found.'
+        }
+    )
+    def delete(self, request, pk, format=None):
+        customer = self.get_object(pk)
+        if not customer:
+            return Response(
+                {"detail": "Customer not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        customer.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
