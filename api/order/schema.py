@@ -31,31 +31,105 @@ order_create_request = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     required=['customer_id', 'items'],
     properties={
-        'customer_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-        'shipping_address': openapi.Schema(type=openapi.TYPE_STRING),
-        'payment_method': openapi.Schema(type=openapi.TYPE_STRING),
+        'customer_id': openapi.Schema(
+            type=openapi.TYPE_INTEGER,
+            description="ID of the customer placing the order",
+            example=1
+        ),
+        'shipping_address': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Full shipping address for the order",
+            example="123 Main St, City, Country, 10001"
+        ),
+        'payment_method': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Payment method for the order",
+            enum=["credit_card", "paypal", "bank_transfer", "cod"],
+            example="credit_card"
+        ),
         'items': openapi.Schema(
             type=openapi.TYPE_ARRAY,
+            description="List of order items",
+            minItems=1,
             items=openapi.Schema(
                 type=openapi.TYPE_OBJECT,
+                required=['product_id', 'quantity'],
                 properties={
-                    'product_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                    'quantity': openapi.Schema(type=openapi.TYPE_INTEGER, minimum=1)
+                    'product_id': openapi.Schema(
+                        type=openapi.TYPE_INTEGER,
+                        description="ID of the product being ordered",
+                        example=101
+                    ),
+                    'quantity': openapi.Schema(
+                        type=openapi.TYPE_INTEGER,
+                        description="Quantity of the product",
+                        minimum=1,
+                        example=2
+                    )
                 }
             )
         )
+    },
+    example={
+        "customer_id": 1,
+        "shipping_address": "123 Main St, City, Country, 10001",
+        "payment_method": "credit_card",
+        "items": [
+            {
+                "product_id": 101,
+                "quantity": 2
+            },
+            {
+                "product_id": 205,
+                "quantity": 1
+            }
+        ]
     }
 )
 
 order_update_request = openapi.Schema(
     type=openapi.TYPE_OBJECT,
+    description="Update order details",
     properties={
         'status': openapi.Schema(
             type=openapi.TYPE_STRING,
-            enum=['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+            description="Updated status of the order",
+            enum=['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
+            example="shipped"
         ),
-        'shipping_tracking': openapi.Schema(type=openapi.TYPE_STRING),
-        'notes': openapi.Schema(type=openapi.TYPE_STRING)
+        'shipping_tracking': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Tracking number for the shipment",
+            example="1Z999AA1234567890",
+            maxLength=50
+        ),
+        'shipping_address': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Updated shipping address (if changed)",
+            example="456 New St, City, Country, 20001"
+        ),
+        'payment_status': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Updated payment status",
+            enum=['pending', 'paid', 'refunded', 'failed'],
+            example="paid"
+        ),
+        'notes': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Additional notes or comments about the order update",
+            example="Customer requested signature confirmation"
+        ),
+        'cancellation_reason': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description="Required if status is set to 'cancelled'",
+            example="Out of stock"
+        )
+    },
+    example={
+        "status": "shipped",
+        "shipping_tracking": "1Z999AA1234567890",
+        "notes": "Shipped via UPS Ground",
+        "payment_status": "paid"
     }
 )
 
