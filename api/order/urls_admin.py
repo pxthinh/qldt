@@ -1,14 +1,9 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views_admin import OrderAdminViewSet
+from django.urls import path
+from .views_admin import order_admin_list, order_admin_detail
 
 app_name = 'admin_orders'
 
-# Create a router and register our viewsets with it
-router = DefaultRouter()
-router.register(r'', OrderAdminViewSet, basename='admin-order')
-
-# The API URLs are now determined automatically by the router
 urlpatterns = [
-    path('', include(router.urls)),
+    path("", order_admin_list, name="admin-order-list"),
+    path("<int:id>/", order_admin_detail, name="admin-order-detail"),
 ]

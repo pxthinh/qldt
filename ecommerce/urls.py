@@ -56,7 +56,7 @@ schema_view = get_schema_view(
         path('api/admin/customer/', include('api.customer.urls_admin')),
         path('api/admin/product/', include('api.product.urls_admin')),
         path('api/admin/staff/', include('api.staff.urls_admin')),
-        # Note: admin/orders is intentionally excluded
+        path('api/admin/orders/', include('api.order.urls_admin')),  # Include admin orders in schema
     ]
 )
 
