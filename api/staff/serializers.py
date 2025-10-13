@@ -71,6 +71,33 @@ class StaffSerializer(serializers.ModelSerializer):
         read_only_fields = ('staff_id', 'created_at', 'updated_at')
 
 
+class StoreCreateSerializer(serializers.Serializer):
+    store_name = serializers.CharField(required=True, help_text="Name of the store")
+    phone = serializers.CharField(required=False, allow_blank=True, help_text="Store contact number")
+    email = serializers.EmailField(required=False, allow_blank=True, help_text="Store email address")
+    street = serializers.CharField(required=False, allow_blank=True, help_text="Street address")
+    city = serializers.CharField(required=False, allow_blank=True, help_text="City")
+    state = serializers.CharField(required=False, allow_blank=True, max_length=10, help_text="State/Province code")
+    zip_code = serializers.CharField(required=False, allow_blank=True, max_length=10, help_text="ZIP/Postal code")
+
+    class Meta:
+        swagger_schema_fields = {
+            'example': {
+                "store_name": "Main Store",
+                "email": "main@example.com",
+                "phone": "123-456-7890",
+                "street": "123 Main St",
+                "city": "New York",
+                "state": "NY",
+                "zip_code": "10001"
+            }
+        }
+
+    def validate(self, attrs):
+        if not attrs.get('store_name'):
+            raise serializers.ValidationError("store_name is required when creating a new store")
+        return attrs
+
 class StaffCreateUpdateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
@@ -78,18 +105,82 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
         style={'input_type': 'password'},
         min_length=8,
         error_messages={
-            'min_length': 'Password must be at least 8 characters long.'
-        }
+            'min_length': 'Password must be at least 8 characters long.',
+            'required': 'Password is required'
+        },
+        help_text="Staff account password (min 8 characters)"
     )
+    store = StoreCreateSerializer(required=False, write_only=True, help_text="Store details (required if store_id is not provided)")
+    manager = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text="ID of the manager (0 or null for no manager)"
+    )
+    
+    def validate_manager(self, value):
+        if value == 0:
+            return None
+        if value is not None:
+            try:
+                return Staff.objects.get(pk=value)
+            except Staff.DoesNotExist:
+                raise serializers.ValidationError("Manager with this ID does not exist.")
+        return value
+
+    class Meta:
+        swagger_schema_fields = {
+            'example': {
+                "username": "store_manager",
+                "email": "manager@example.com",
+                "first_name": "John",
+                "last_name": "Doe",
+                "phone": "123-456-7890",
+                "password": "securepass123",
+                "is_active": True,
+                "store": {
+                    "store_name": "Main Store",
+                    "email": "main@example.com",
+                    "phone": "123-456-7890",
+                    "street": "123 Main St",
+                    "city": "New York",
+                    "state": "NY",
+                    "zip_code": "10001"
+                },
+                "manager": 0
+            }
+        }
 
     class Meta:
         model = Staff
         fields = ('username', 'email', 'first_name', 'last_name', 
-                 'phone', 'password', 'is_active', 'store_id', 'manager_id')
+                 'phone', 'password', 'is_active', 'store_id', 'store', 'manager')
         extra_kwargs = {
-            'email': {'required': True},
-            'first_name': {'required': True},
+            'username': {'help_text': 'Username for the staff account'},
+            'email': {'required': True, 'help_text': 'Email address of the staff member'},
+            'first_name': {'required': True, 'help_text': 'First name of the staff member'},
+            'last_name': {'help_text': 'Last name of the staff member'},
+            'phone': {'help_text': 'Contact phone number'},
+            'is_active': {'help_text': 'Whether the staff account is active', 'default': True},
+            'store_id': {
+                'help_text': 'ID of an existing store (provide either this or store object)',
+                'required': False,
+                'allow_null': True
+            },
+            'manager': {
+                'help_text': 'ID of the manager (0 for no manager)',
+                'required': False,
+                'allow_null': True,
+                'default': 0
+            },
         }
+
+    def validate(self, attrs):
+        if attrs.get('store') and attrs.get('store_id'):
+            raise serializers.ValidationError({
+                'non_field_errors': ["Cannot provide both 'store' and 'store_id'. Choose one."]
+            })
+        return attrs
 
     def validate_username(self, value):
         if self.instance and self.instance.username == value:
@@ -106,15 +197,36 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
         return value.lower() if value else value
 
     def create(self, validated_data):
+        from api.store.models import Store
+        
+        store_data = validated_data.pop('store', None)
         password = validated_data.pop('password')
+        
+        # Create store if store_data is provided
+        if store_data:
+            store = Store.objects.create(**store_data)
+            validated_data['store_id'] = store.id  # Changed from store.store_id to store.id
+        
+        # Create staff
         staff = Staff(**validated_data)
         staff.set_password(password)
         staff.save()
         return staff
 
     def update(self, instance, validated_data):
+        from api.store.models import Store
+        
+        store_data = validated_data.pop('store', None)
         password = validated_data.pop('password', None)
         
+        # Update store if store_data is provided
+        if store_data and instance.store_id:
+            store = instance.store
+            for attr, value in store_data.items():
+                setattr(store, attr, value)
+            store.save()
+        
+        # Update staff fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
             
@@ -123,4 +235,3 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
             
         instance.save()
         return instance
-        read_only_fields = ('staff_id',)

@@ -60,8 +60,7 @@ schema_view = get_schema_view(
         path('api/admin/product/', include('api.product.urls_admin')),
         path('api/admin/staff/', include('api.staff.urls_admin')),
         path('api/admin/orders/', include('api.order.urls_admin')),
-        path('api/admin/stores/', include('api.store.urls')),  # Store admin endpoints
-        
+
         # Staff authentication endpoints
         path('api/staff/auth/', include('api.staff.urls')),
 
@@ -100,7 +99,6 @@ urlpatterns = [
     path('api/admin/product/', include('api.product.urls_admin')),
     path('api/admin/staff/', include('api.staff.urls_admin')),  # Staff admin endpoints
     path('api/admin/orders/', include('api.order.urls_admin')),  # Admin order management endpoints
-    path('api/admin/stores/', include('api.store.urls')),  # Store management endpoints
 
 ]
 
