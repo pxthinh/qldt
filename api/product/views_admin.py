@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.core.paginator import Paginator
-from ..core.decorators import staff_required as _staff_required
+from ..core.decorators import staff_required
 from .models import Product
 from .schema import (
     product_list_get_schema, product_create_schema,
@@ -54,7 +54,7 @@ def _get_paginated_response(queryset, request):
 @api_view(['GET', 'POST'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
-@_staff_required
+@staff_required()
 def product_admin_list(request):
     if request.method == 'GET':
         # Handle GET request - List products (non-deleted by default)
@@ -153,7 +153,7 @@ def product_admin_list(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
-@_staff_required
+@staff_required()
 def product_admin_detail(request, id):
     # Get product including soft-deleted ones
     product = get_object_or_404(Product.objects.all(), pk=id)

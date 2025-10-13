@@ -1,7 +1,7 @@
 from django.http import JsonResponse, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import now
-from ..core.decorators import staff_required as _staff_required
+from ..core.decorators import staff_required
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework import status
@@ -52,7 +52,7 @@ from .schema import (
 @api_view(['GET', 'POST'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
-@_staff_required
+@staff_required()
 def brand_admin_list(request):
     if request.method == 'GET':
         # GET method - List all brands
@@ -155,7 +155,7 @@ def brand_admin_list(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
-@_staff_required
+@staff_required
 def brand_admin_detail(request, id: int):
     try:
         obj = Brand.objects.get(pk=id)

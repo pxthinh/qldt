@@ -72,3 +72,62 @@ class Store(models.Model):
 
     def __str__(self):
         return self.store_name
+
+
+class Stock(models.Model):
+    """
+    Tracks inventory levels for products in each store.
+    """
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name='stocks',
+        help_text=_('The store where this stock is located')
+    )
+    product = models.ForeignKey(
+        'product.Product',
+        on_delete=models.CASCADE,
+        related_name='stocks',
+        help_text=_('The product in stock')
+    )
+    quantity = models.IntegerField(
+        _('quantity'),
+        default=0,
+        help_text=_('Current quantity in stock')
+    )
+    created_at = models.DateTimeField(
+        _('created at'),
+        auto_now_add=True,
+        help_text=_('When the stock record was created')
+    )
+    updated_at = models.DateTimeField(
+        _('updated at'),
+        auto_now=True,
+        help_text=_('When the stock record was last updated')
+    )
+
+    class Meta:
+        db_table = 'inventory.stocks'
+        verbose_name = _('stock')
+        verbose_name_plural = _('stocks')
+        unique_together = ('store', 'product')
+
+    def __str__(self):
+        return f"{self.product.product_name} at {self.store.store_name}: {self.quantity}"
+    
+    @classmethod
+    def update_stock(cls, store_id, product_id, quantity_change):
+        """
+        Update stock quantity for a product in a store.
+        Use negative quantity_change to decrease stock.
+        """
+        stock, created = cls.objects.get_or_create(
+            store_id=store_id,
+            product_id=product_id,
+            defaults={'quantity': 0}
+        )
+        stock.quantity += quantity_change
+        if stock.quantity < 0:
+            raise ValueError("Insufficient stock")
+        stock.save()
+        return stock

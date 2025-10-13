@@ -1,5 +1,9 @@
 from django.db import models
+from django.db.models.signals import post_save, pre_save
+from django.dispatch import receiver
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from api.store.models import Stock
 
 class Order(models.Model):
     """Order model for customer purchases."""
@@ -39,6 +43,40 @@ class Order(models.Model):
     def __str__(self):
         return f"Order {self.order_id} - {self.get_order_status_display()}"
 
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        
+        # Handle status changes for existing orders
+        if not is_new:
+            old_instance = Order.objects.get(pk=self.pk)
+            if old_instance.order_status != self.order_status:
+                self.handle_status_change(old_instance.order_status)
+        
+        super().save(*args, **kwargs)
+    
+    def handle_status_change(self, old_status):
+        """Handle stock updates when order status changes"""
+        # If order is being completed, reduce stock
+        if self.order_status == self.OrderStatus.COMPLETED:
+            for item in self.items.all():
+                try:
+                    Stock.update_stock(
+                        store_id=self.store_id,
+                        product_id=item.product_id,
+                        quantity_change=-item.quantity
+                    )
+                except ValueError as e:
+                    raise ValidationError(f"Insufficient stock for {item.product.product_name}")
+        
+        # If order was completed but status is changed back, restore stock
+        elif old_status == self.OrderStatus.COMPLETED:
+            for item in self.items.all():
+                Stock.update_stock(
+                    store_id=self.store_id,
+                    product_id=item.product_id,
+                    quantity_change=item.quantity
+                )
+
     class Meta:
         db_table = 'orders'
         ordering = ['-order_date']
@@ -51,6 +89,23 @@ class OrderItem(models.Model):
         on_delete=models.CASCADE,
         related_name='items'
     )
+    
+    def clean(self):
+        """Validate stock availability when order is being created or updated"""
+        if self.order.order_status == Order.OrderStatus.PENDING and self.pk is None:
+            try:
+                stock = Stock.objects.get(
+                    store_id=self.order.store_id,
+                    product_id=self.product_id
+                )
+                if stock.quantity < self.quantity:
+                    raise ValidationError({
+                        'quantity': f'Insufficient stock. Only {stock.quantity} available.'
+                    })
+            except Stock.DoesNotExist:
+                raise ValidationError({
+                    'product': 'Product is not available in the selected store.'
+                })
     item_id = models.PositiveSmallIntegerField()
     product = models.ForeignKey(
         'product.Product',
