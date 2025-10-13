@@ -14,9 +14,9 @@ from drf_yasg import openapi
 from .models import Customer
 from .schemas import register_request, register_response
 
-# cấu hình token
+# Token configuration
 TOKEN_SALT = "customer-email-confirm"
-TOKEN_MAX_AGE = 60 * 60 * 24 * 3   # 3 ngày
+TOKEN_MAX_AGE = 60 * 60 * 24 * 3   # 3 days
 
 def _json_body(request):
     try:
@@ -31,11 +31,11 @@ def _build_confirm_url(request, token: str) -> str:
 def _send_verification_email(request, customer: Customer):
     token = signing.dumps({"id": customer.pk, "email": customer.email}, salt=TOKEN_SALT)
     confirm_url = _build_confirm_url(request, token)
-    subject = "Xác nhận tài khoản của bạn"
+    subject = "Confirm your account"
     message = (
-        f"Chào {customer.first_name or customer.user_name},\n\n"
-        f"Nhấn vào liên kết dưới đây để xác nhận email:\n{confirm_url}\n\n"
-        f"Liên kết có hiệu lực trong 3 ngày."
+        f"Hello {customer.first_name or customer.user_name},\n\n"
+        f"Please click the link below to confirm your email:\n{confirm_url}\n\n"
+        f"This link is valid for 3 days."
     )
     send_mail(subject, message, None, [customer.email], fail_silently=False)
 

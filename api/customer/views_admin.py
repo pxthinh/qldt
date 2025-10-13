@@ -40,7 +40,7 @@ _FIELD_MAP = {
 }
 
 def _sanitize_update(body: Mapping[str, str]) -> dict:
-    """Chỉ nhận những field được phép update (không cho client set id)."""
+    """Only allow updating specific fields (prevent client from setting id)."""
     allowed = [
         "user_name", "password",
         "first_name", "last_name",

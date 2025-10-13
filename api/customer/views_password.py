@@ -34,15 +34,15 @@ def _build_reset_url(request, token: str) -> str:
     return request.build_absolute_uri(f"{path}?token={token}")
 
 def _send_reset_email(request, customer: Customer):
-    subject = "Đặt lại mật khẩu của bạn"
+    subject = "Reset Your Password"
     token = signing.dumps({"id": customer.pk, "email": (customer.email or "").lower(), "ts": int(time.time())},
                           salt=TOKEN_SALT)
     url = _build_reset_url(request, token)
     message = (
-        f"Chào {customer.first_name or customer.user_name},\n\n"
-        f"Bạn đã yêu cầu đặt lại mật khẩu. Nhấn vào liên kết dưới đây để đặt mật khẩu mới "
-        f"(hiệu lực trong 1 giờ):\n{url}\n\n"
-        f"Nếu bạn không yêu cầu, hãy bỏ qua email này."
+        f"Hello {customer.first_name or customer.user_name},\n\n"
+        f"You have requested to reset your password. Click the link below to set a new password "
+        f"(valid for 1 hour):\n{url}\n\n"
+        f"If you didn't request this, please ignore this email."
     )
     send_mail(subject, message, None, [customer.email], fail_silently=False)
 
@@ -59,7 +59,7 @@ def _send_reset_email(request, customer: Customer):
 @require_http_methods(["POST"])
 def password_reset_request(request):
     """
-    Gửi email đặt lại mật khẩu (nếu email tồn tại).
+    Send password reset email (if email exists).
     """
     body = _json_body(request)
     user_name = (body.get("user_name") or "").strip()
@@ -71,7 +71,7 @@ def password_reset_request(request):
         elif email:
             obj = Customer.objects.get(email__iexact=email)
         else:
-            return JsonResponse({"detail": "user_name hoặc email là bắt buộc"}, status=400)
+            return JsonResponse({"detail": "user_name or email is required"}, status=400)
 
         if obj.email:
             _send_reset_email(request, obj)
@@ -93,7 +93,7 @@ def password_reset_request(request):
 @require_http_methods(["POST"])
 def password_reset_confirm(request):
     """
-    Đặt lại mật khẩu mới với token hợp lệ.
+    Reset password with a valid token.
     """
     body = _json_body(request)
 
@@ -104,7 +104,7 @@ def password_reset_confirm(request):
     if not token:
         return JsonResponse({"detail": "token is required"}, status=400)
     if not new_password or len(new_password) < 6:
-        return JsonResponse({"detail": "new_password tối thiểu 6 ký tự"}, status=400)
+        return JsonResponse({"detail": "new_password must be at least 6 characters"}, status=400)
     if not confirm_password:
         return JsonResponse({"detail": "confirm_password is required"}, status=400)
     if new_password != confirm_password:
