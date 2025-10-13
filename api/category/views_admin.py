@@ -130,7 +130,7 @@ def category_admin_list(request):
 @staff_required()
 def category_admin_detail(request, id):
     try:
-        category = Category.objects.get(pk=id)
+        category = Category.objects.get(pk=id, deleted_at__isnull=True)
     except Category.DoesNotExist:
         return Response(
             {"status": "error", "message": "Category not found"},

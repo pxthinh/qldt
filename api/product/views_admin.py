@@ -138,7 +138,7 @@ def _get_paginated_response(queryset, request):
 def product_admin_list(request):
     if request.method == 'GET':
         # Handle GET request - List products (non-deleted by default)
-        queryset = Product.active_objects.select_related('brand', 'category').filter(deleted_at__isnull=True),
+        queryset = Product.objects.select_related('brand', 'category').filter(deleted_at__isnull=True).all()
         
         # Apply filters
         name = request.query_params.get('name')
@@ -253,8 +253,14 @@ def product_admin_list(request):
 @staff_required()
 def product_admin_detail(request, id):
     # Get product including soft-deleted ones
-    product = get_object_or_404(Product.objects.filter(deleted_at__isnull=True), pk=id)
-    
+    try:
+        product = Product.objects.get(pk=id, deleted_at__isnull=True)
+    except Product.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'Product not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
     if request.method == 'GET':
         # Handle GET request - Get product details
         response_data = {

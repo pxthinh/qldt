@@ -158,7 +158,7 @@ def brand_admin_list(request):
 @staff_required
 def brand_admin_detail(request, id: int):
     try:
-        obj = Brand.objects.get(pk=id)
+        obj = Brand.objects.get(pk=id, deleted_at__isnull=True)
     except Brand.DoesNotExist:
         return JsonResponse({"detail": "Not found"}, status=404)
 
