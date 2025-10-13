@@ -25,7 +25,10 @@ SECRET_KEY = 'django-insecure-c=tyi3=_2i_yomp(r5u4#vec^y&5ab$r=gl&td-j&gu)$)uffe
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    '3210e5687dfe.ngrok-free.app',
+    '127.0.0.1'
+]
 
 # Token settings
 TOKEN_EXPIRY_DAYS = 30  # Token expiry in days

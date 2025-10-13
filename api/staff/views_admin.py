@@ -10,7 +10,11 @@ from ..core.decorators import staff_required
 from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-
+import csv
+import io
+from datetime import datetime
+from django.http import HttpResponse
+from rest_framework.parsers import MultiPartParser
 
 class IsStaffUser(BasePermission):
     """
@@ -34,6 +38,11 @@ from .models import Staff
 from .serializers import StaffSerializer, StaffCreateUpdateSerializer
 
 
+def _get_export_filename(base_name, format_type):
+    """Generate a filename with timestamp for exports"""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return f"{base_name}_{timestamp}.{format_type}"
+
 class StaffAdminViewSet(viewsets.ModelViewSet):
     """
     API endpoint for managing staff members.
@@ -44,6 +53,9 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
     ## Available Actions
     - **List Staff**: GET /api/admin/staff/
     - **Create Staff**: POST /api/admin/staff/
+    - **Export Staff**: GET /api/admin/staff/export/
+    - **Import Staff**: POST /api/admin/staff/import/
+    - **Download Template**: GET /api/admin/staff/import/template/
     - **Retrieve Staff**: GET /api/admin/staff/{id}/
     - **Update Staff**: PUT /api/admin/staff/{id}/
     - **Delete Staff**: DELETE /api/admin/staff/{id}/ (soft delete)
@@ -76,11 +88,332 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
                 Q(first_name__icontains=search) |
                 Q(last_name__icontains=search)
             )
-        return queryset.order_by('-created_at')
+        return queryset
+        
+    @action(detail=False, methods=['get'])
+    @swagger_auto_schema(
+        operation_summary='Export Staff Data',
+        operation_description='''
+        Export all staff data to CSV format.
+        
+        The exported file will include:
+        - Staff details (username, email, name, phone, status)
+        - Manager information (username, email, name)
+        - Store information (name, contact details, address)
+        
+        Returns a CSV file download.
+        ''',
+        responses={
+            200: openapi.Response(
+                description='CSV file with staff data',
+                schema=openapi.Schema(type=openapi.TYPE_FILE),
+                examples={
+                    'application/csv': {
+                        'summary': 'Sample CSV export',
+                        'value': (
+                            'username,email,first_name,last_name,phone,is_active,manager_username,manager_email,manager_first_name,manager_last_name,store_id,store_name,store_email,store_phone,store_street,store_city,store_state,store_zip_code\n'
+                        )
+                    }
+                }
+            ),
+            400: 'Error exporting data',
+            403: 'Permission denied. User must be an admin.'
+        },
+        tags=['Data Integration Staff']
+    )
+    def export(self, request):
+        """
+        Export all staff data to CSV format.
+        Includes staff details, manager information, and store details.
+        """
+        try:
+            # Get all staff with related data
+            staff_list = self.get_queryset().select_related('manager').all()
+            
+            # Pre-fetch store data
+            from django.db.models import Prefetch
+            from ..store.models import Store
+            
+            # Get all store IDs from staff
+            store_ids = [s.store_id for s in staff_list if s.store_id is not None]
+            
+            # Create a dictionary of store data for quick lookup
+            stores = {store.id: store for store in Store.objects.filter(id__in=store_ids)}
+            
+            # Define CSV headers with all staff, manager, and store fields
+            field_names = [
+                # Staff details
+                'username', 'email', 'first_name', 'last_name',
+                'phone', 'is_active',
+                
+                # Manager details
+                'manager_username', 'manager_email', 'manager_first_name', 'manager_last_name',
+                
+                # Store details
+                'store_id', 'store_name', 'store_email', 'store_phone',
+                'store_street', 'store_city', 'store_state', 'store_zip_code',
+            ]
+            
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename={_get_export_filename("staff_export", "csv")}'
+            
+            writer = csv.DictWriter(response, fieldnames=field_names)
+            writer.writeheader()
+            
+            # Write data rows with all fields
+            for staff in staff_list:
+                # Get manager details if exists
+                manager = staff.manager
+                store = stores.get(staff.store_id) if staff.store_id else None
+                
+                row_data = {
+                    # Staff details
+                    'username': staff.username or '',
+                    'email': staff.email or '',
+                    'first_name': staff.first_name or '',
+                    'last_name': staff.last_name or '',
+                    'phone': staff.phone or '',
+                    'is_active': 'Yes' if staff.is_active else 'No',
+
+                    # Manager details
+                    'manager_username': manager.username if manager else '',
+                    'manager_email': manager.email if manager else '',
+                    'manager_first_name': manager.first_name if manager else '',
+                    'manager_last_name': manager.last_name if manager else '',
+                    
+                    # Store details
+                    'store_id': str(store.id) if store else '',
+                    'store_name': store.store_name if store else '',
+                    'store_email': store.email if store else '',
+                    'store_phone': store.phone if store else '',
+                    'store_street': store.street if store else '',
+                    'store_city': store.city if store else '',
+                    'store_state': store.state if store else '',
+                    'store_zip_code': store.zip_code if store else '',
+                }
+                
+                writer.writerow(row_data)
+                
+            return response
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Error exporting staff data: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     def perform_create(self, serializer):
         # The creator field is handled in the serializer
         serializer.save()
+        
+    @action(detail=False, methods=['get'])
+    @swagger_auto_schema(
+        operation_summary='Download Import Template',
+        operation_description='''
+        Download a CSV template for importing staff data.
+        
+        The template includes all possible fields with example values.
+        Required fields are marked with (*).
+        
+        Required fields:
+        - username (*): Unique username for the staff member
+        - email (*): Email address (must be unique)
+        - first_name (*): First name
+        
+        Optional fields:
+        - last_name: Last name
+        - phone: Phone number
+        - password: Required for new users
+        - is_active: 'yes' or 'no' (default: 'yes')
+        - manager_username: Username of the manager
+        - manager_email: Alternative to manager_username
+        - store_id: ID of the store (if exists)
+        - store_name: Name of the store (will create new if ID not provided)
+        - store_email: Store email
+        - store_phone: Store phone number
+        - store_street: Store street address
+        - store_city: Store city
+        - store_state: Store state/province
+        - store_zip_code: Store ZIP/postal code
+        - store_is_active: 'yes' or 'no' (default: 'yes')
+        ''',
+        responses={
+            200: openapi.Response(
+                description='CSV template file',
+                schema=openapi.Schema(type=openapi.TYPE_FILE),
+                examples={
+                    'text/csv': {
+                        'summary': 'Sample CSV template',
+                        'value': (
+                            'username,email,first_name,last_name,phone,password,is_active,manager_username,manager_email,store_id,store_name,store_email,store_phone,store_street,store_city,store_state,store_zip_code,store_is_active\n'
+                        )
+                    }
+                }
+            ),
+            400: 'Error generating template',
+            403: 'Permission denied. User must be an admin.'
+        },
+        tags=['Data Integration Staff']
+    )
+    def template(self, request):
+        """
+        Download a CSV template for importing staff data.
+        The template includes all required and optional fields with example values.
+        """
+        try:
+            # Define all possible fields for import
+            field_names = [
+                # Staff details (required)
+                'username', 'email', 'first_name', 'last_name', 'password',
+                # Staff details (optional)
+                'phone', 'is_active',
+                # Manager details (optional)
+                'manager_username', 'manager_email', 'manager_first_name', 'manager_last_name',
+                # Store details (optional)
+                'store_id', 'store_name', 'store_email', 'store_phone',
+                'store_street', 'store_city', 'store_state', 'store_zip_code',
+            ]
+            
+            # Sample data with all fields
+            sample_data = {
+                # Staff details
+                'username': 'john_doe',
+                'email': 'john.doe@example.com',
+                'first_name': 'John',
+                'last_name': 'Doe',
+                'password': 'SecurePass123!',
+                'phone': '+1234567890',
+                'is_active': 'Yes',
+                
+                # Manager details (must exist in the system)
+                'manager_username': 'jane_smith',
+                'manager_email': 'jane.smith@example.com',
+                'manager_first_name': 'Jane',
+                'manager_last_name': 'Smith',
+                
+                # Store details (will be created if doesn't exist)
+                'store_id': '',  # Leave empty to create new store
+                'store_name': 'Main Store',
+                'store_email': 'store@example.com',
+                'store_phone': '+1234567891',
+                'store_street': '123 Main St',
+                'store_city': 'New York',
+                'store_state': 'NY',
+                'store_zip_code': '10001',
+            }
+            
+            # Create CSV response
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename=staff_import_template.csv'
+            
+            writer = csv.DictWriter(response, fieldnames=field_names)
+            writer.writeheader()
+            writer.writerow(sample_data)
+            
+            return response
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Error generating template: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser])
+    @swagger_auto_schema(
+        operation_summary='Upload Staff Import File',
+        operation_description='Upload a CSV file containing staff data for import. The file will be saved to the server for processing.',
+        manual_parameters=[
+            openapi.Parameter(
+                name='file',
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                required=True,
+                description='CSV file with staff data to import.'
+            )
+        ],
+        responses={
+            201: openapi.Response(
+                description='File uploaded successfully',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, description='Success message'),
+                        'file_path': openapi.Schema(type=openapi.TYPE_STRING,
+                                                    description='Path where the file was saved')
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description='Bad Request',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description='Internal Server Error',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+                    }
+                )
+            )
+        },
+        tags=['Data Integration Staff']
+    )
+    def import_staff(self, request):
+        """
+        Handle file upload for staff import.
+        Saves the uploaded CSV file to the server for processing.
+        """
+        if 'file' not in request.FILES:
+            return Response(
+                {'error': 'No file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        file = request.FILES['file']
+        if not file.name.lower().endswith('.csv'):
+            return Response(
+                {'error': 'File must be a CSV'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        import os
+        from django.conf import settings
+        
+        # Create import directory if it doesn't exist
+        import_dir = os.path.join(settings.MEDIA_ROOT, 'imports')
+        os.makedirs(import_dir, exist_ok=True)
+        
+        # Generate unique filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'staff_import_{timestamp}.csv'
+        file_path = os.path.join(import_dir, filename)
+        
+        try:
+            # Save the file
+            with open(file_path, 'wb+') as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+            
+            return Response(
+                {
+                    'message': 'File uploaded successfully',
+                    'file_path': file_path
+                },
+                status=status.HTTP_201_CREATED
+            )
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Error saving file: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @swagger_auto_schema(
         tags=['Admin - Staff Management'],
