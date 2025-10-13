@@ -1,6 +1,8 @@
 from typing import Mapping, List, Dict
+from django.db.models import Q, Sum, Value, IntegerField
 from math import ceil
 from api.product.models import Product
+from django.db.models.functions import Coalesce
 
 _FIELD_MAP = {
     'id': 'product_id', 'product_id': 'product_id',
@@ -28,7 +30,13 @@ def _to_int(x, default=0, min_val=None, max_val=None):
     return v
 
 def list_products(params: Mapping[str, str]) -> Dict:
-    qs = Product.objects.select_related('brand', 'category').all()
+    show_deleted = params.get('show_deleted', '').lower() == 'true'
+    qs = Product.objects.select_related('brand', 'category').annotate(
+        total_stock=Coalesce(Sum('stocks__quantity'), Value(0), output_field=IntegerField())
+    )
+
+    if not show_deleted:
+        qs = qs.filter(deleted_at__isnull=True)
 
     name = (params.get('name') or '').strip()
     if name:
@@ -97,10 +105,12 @@ def list_products(params: Mapping[str, str]) -> Dict:
         'category_id', 'category__category_name',
         'model_year',
         'list_price',
+        'total_stock',
     ))
     for d in items:
         d['brand_name'] = d.pop('brand__brand_name', None)
         d['category_name'] = d.pop('category__category_name', None)
+        d['total_stock'] = int(d.get('total_stock', 0))
 
     return {
         "items": items,

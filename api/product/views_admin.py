@@ -6,15 +6,73 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Q, Sum, F
 from django.core.paginator import Paginator
 from ..core.decorators import staff_required
+from ..store.models import Stock, Store
 from .models import Product
 from .schema import (
     product_list_get_schema, product_create_schema,
     product_retrieve_schema, product_update_schema, product_delete_schema,
     product_name_query, brand_id_query, category_id_query
 )
+
+def _get_stock_info(product):
+    """Helper function to get stock information for a product"""
+    stocks = Stock.objects.filter(product=product).select_related('store')
+    total_stock = stocks.aggregate(total=Sum('quantity'))['total'] or 0
+    
+    stock_list = []
+    for stock in stocks:
+        stock_list.append({
+            'id': stock.id,
+            'store_id': stock.store_id,
+            'store_name': stock.store.store_name,
+            'quantity': stock.quantity,
+            'updated_at': stock.updated_at
+        })
+    
+    return {
+        'total_stock': total_stock,
+        'stocks': stock_list
+    }
+
+def _update_product_stocks(product, stocks_data):
+    """Helper function to update product stocks"""
+    if not isinstance(stocks_data, list):
+        return
+    
+    # Get existing stocks indexed by store_id for easier lookup
+    existing_stocks = {s.store_id: s for s in product.stocks.all()}
+    processed_store_ids = set()
+    
+    for stock_data in stocks_data:
+        store_id = stock_data.get('store_id')
+        if store_id is None:
+            continue
+            
+        quantity = max(0, int(stock_data.get('quantity', 0)))
+        
+        if store_id in existing_stocks:
+            # Update existing stock
+            stock = existing_stocks[store_id]
+            stock.quantity = quantity
+            stock.save()
+        else:
+            # Create new stock if it doesn't exist
+            Stock.objects.create(
+                product=product,
+                store_id=store_id,
+                quantity=quantity
+            )
+        
+        processed_store_ids.add(store_id)
+    
+    # Delete stocks for stores that weren't included in the update
+    # (only if we're doing a full update, not for partial updates)
+    if len(processed_store_ids) > 0:  # Only delete if we processed any stocks
+        product.stocks.exclude(store_id__in=processed_store_ids).delete()
 
 # Using the centralized staff_required decorator from core.decorators
 
@@ -35,18 +93,40 @@ def _get_paginated_response(queryset, request):
     if not show_deleted:
         queryset = queryset.filter(deleted_at__isnull=True)
     
+    # Select related to optimize queries
+    queryset = queryset.select_related('brand', 'category').prefetch_related('stocks__store')
+    
     paginator = Paginator(queryset, page_size)
     page_obj = paginator.get_page(page)
+    
+    # Prepare the results with stock information
+    results = []
+    for product in page_obj.object_list:
+        product_data = {
+            'product_id': product.product_id,
+            'product_name': product.product_name,
+            'brand': {
+                'id': product.brand_id,
+                'name': product.brand.brand_name if product.brand else None
+            } if product.brand_id else None,
+            'category': {
+                'id': product.category_id,
+                'name': product.category.category_name if product.category else None
+            } if product.category_id else None,
+            'model_year': product.model_year,
+            'list_price': str(product.list_price),
+            'created_at': product.created_at,
+            'updated_at': product.updated_at,
+            'deleted_at': product.deleted_at,
+            'stock_info': _get_stock_info(product) if not product.deleted_at else None
+        }
+        results.append(product_data)
     
     return {
         'count': paginator.count,
         'next': page_obj.next_page_number() if page_obj.has_next() else None,
         'previous': page_obj.previous_page_number() if page_obj.has_previous() else None,
-        'results': list(page_obj.object_list.values(
-            'product_id', 'product_name',
-            'brand__brand_name', 'category__category_name',
-            'model_year', 'list_price', 'created_at', 'updated_at', 'deleted_at'
-        ))
+        'results': results
     }
 
 @product_list_get_schema
@@ -58,7 +138,7 @@ def _get_paginated_response(queryset, request):
 def product_admin_list(request):
     if request.method == 'GET':
         # Handle GET request - List products (non-deleted by default)
-        queryset = Product.active_objects.select_related('brand', 'category').all()
+        queryset = Product.active_objects.select_related('brand', 'category').filter(deleted_at__isnull=True),
         
         # Apply filters
         name = request.query_params.get('name')
@@ -96,50 +176,67 @@ def product_admin_list(request):
                 )
         
         try:
-            # Check if product with same name exists (including soft-deleted)
-            existing = Product.objects.filter(
-                product_name__iexact=data['product_name'].strip(),
-                deleted_at__isnull=False
-            ).first()
-            
-            if existing:
-                # Restore the soft-deleted product
-                existing.deleted_at = None
-                existing.model_year = data['model_year']
-                existing.list_price = data['list_price']
-                existing.brand_id = data.get('brand_id')
-                existing.category_id = data.get('category_id')
-                existing.save()
-                product = existing
-            else:
-                # Create new product
-                product = Product.objects.create(
-                    product_name=data['product_name'].strip(),
-                    brand_id=data.get('brand_id'),
-                    category_id=data.get('category_id'),
-                    model_year=data['model_year'],
-                    list_price=data['list_price']
-                )
-            
-            # Prepare response
-            response_data = {
-                'product_id': product.product_id,
-                'product_name': product.product_name,
-                'brand': {
-                    'id': product.brand_id,
-                    'name': product.brand.brand_name if product.brand else None
-                } if product.brand_id else None,
-                'category': {
-                    'id': product.category_id,
-                    'name': product.category.category_name if product.category else None
-                } if product.category_id else None,
-                'model_year': product.model_year,
-                'list_price': str(product.list_price),
-                'created_at': product.created_at,
-                'updated_at': product.updated_at,
-                'deleted_at': product.deleted_at
-            }
-            return Response(response_data, status=status.HTTP_201_CREATED)
+            with transaction.atomic():
+                # Check if product with same name exists (including soft-deleted)
+                existing = Product.objects.filter(
+                    product_name__iexact=data['product_name'].strip(),
+                    deleted_at__isnull=False
+                ).first()
+                
+                if existing:
+                    # Restore the soft-deleted product
+                    existing.deleted_at = None
+                    existing.model_year = data['model_year']
+                    existing.list_price = data['list_price']
+                    existing.brand_id = data.get('brand_id')
+                    existing.category_id = data.get('category_id')
+                    existing.save()
+                    product = existing
+                else:
+                    # Create new product
+                    product = Product.objects.create(
+                        product_name=data['product_name'].strip(),
+                        brand_id=data.get('brand_id'),
+                        category_id=data.get('category_id'),
+                        model_year=data['model_year'],
+                        list_price=data['list_price']
+                    )
+                
+                # Create/update stocks if provided
+                stocks_data = data.get('stocks', [])
+                if isinstance(stocks_data, str):
+                    try:
+                        import json
+                        stocks_data = json.loads(stocks_data)
+                    except (json.JSONDecodeError, TypeError):
+                        stocks_data = []
+                
+                if isinstance(stocks_data, list) and stocks_data:
+                    _update_product_stocks(product, stocks_data)
+                
+                # Get stock info for the response
+                stock_info = _get_stock_info(product)
+                
+                # Prepare response
+                response_data = {
+                    'product_id': product.product_id,
+                    'product_name': product.product_name,
+                    'brand': {
+                        'id': product.brand_id,
+                        'name': product.brand.brand_name if product.brand else None
+                    } if product.brand_id else None,
+                    'category': {
+                        'id': product.category_id,
+                        'name': product.category.category_name if product.category else None
+                    } if product.category_id else None,
+                    'model_year': product.model_year,
+                    'list_price': str(product.list_price),
+                    'created_at': product.created_at,
+                    'updated_at': product.updated_at,
+                    'deleted_at': product.deleted_at,
+                    'stock_info': stock_info
+                }
+                return Response(response_data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
             return Response(
@@ -156,7 +253,7 @@ def product_admin_list(request):
 @staff_required()
 def product_admin_detail(request, id):
     # Get product including soft-deleted ones
-    product = get_object_or_404(Product.objects.all(), pk=id)
+    product = get_object_or_404(Product.objects.filter(deleted_at__isnull=True), pk=id)
     
     if request.method == 'GET':
         # Handle GET request - Get product details
@@ -175,7 +272,8 @@ def product_admin_detail(request, id):
             'list_price': str(product.list_price),
             'created_at': product.created_at,
             'updated_at': product.updated_at,
-            'deleted_at': product.deleted_at
+            'deleted_at': product.deleted_at,
+            'stock_info': _get_stock_info(product) if not product.deleted_at else None
         }
         return Response(response_data)
         
@@ -191,49 +289,55 @@ def product_admin_detail(request, id):
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data
         
         try:
-            # Update fields
-            if 'product_name' in data:
-                product.product_name = data['product_name'].strip()
-                
-                # Check for duplicate name (case-insensitive)
-                if Product.objects.filter(
-                    product_name__iexact=product.product_name,
-                    deleted_at__isnull=True
-                ).exclude(pk=product.pk).exists():
-                    return Response(
-                        {"status": "error", "message": "Product with this name already exists"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+            with transaction.atomic():
+                # Update product fields
+                if 'product_name' in data:
+                    product.product_name = data['product_name'].strip()
                     
-            if 'brand_id' in data:
-                product.brand_id = data['brand_id'] or None
-            if 'category_id' in data:
-                product.category_id = data['category_id'] or None
-            if 'model_year' in data:
-                product.model_year = data['model_year']
-            if 'list_price' in data:
-                product.list_price = data['list_price']
+                    # Check for duplicate name (case-insensitive)
+                    if Product.objects.filter(
+                        product_name__iexact=product.product_name,
+                        deleted_at__isnull=True
+                    ).exclude(pk=product.pk).exists():
+                        return Response(
+                            {"status": "error", "message": "Product with this name already exists"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                        
+                if 'brand_id' in data:
+                    product.brand_id = data['brand_id'] or None
+                if 'category_id' in data:
+                    product.category_id = data['category_id'] or None
+                if 'model_year' in data:
+                    product.model_year = data['model_year']
+                if 'list_price' in data:
+                    product.list_price = data['list_price']
+                    
+                product.save()
                 
-            product.save()
-            
-            # Prepare response
-            response_data = {
-                'product_id': product.product_id,
-                'product_name': product.product_name,
-                'brand': {
-                    'id': product.brand_id,
-                    'name': product.brand.brand_name if product.brand else None
-                } if product.brand_id else None,
-                'category': {
-                    'id': product.category_id,
-                    'name': product.category.category_name if product.category else None
-                } if product.category_id else None,
-                'model_year': product.model_year,
-                'list_price': str(product.list_price),
-                'created_at': product.created_at,
-                'updated_at': product.updated_at,
-                'deleted_at': product.deleted_at
-            }
+                # Update stocks if provided
+                if 'stocks' in data and isinstance(data['stocks'], list):
+                    _update_product_stocks(product, data['stocks'])
+                
+                # Prepare response
+                response_data = {
+                    'product_id': product.product_id,
+                    'product_name': product.product_name,
+                    'brand': {
+                        'id': product.brand_id,
+                        'name': product.brand.brand_name if product.brand else None
+                    } if product.brand_id else None,
+                    'category': {
+                        'id': product.category_id,
+                        'name': product.category.category_name if product.category else None
+                    } if product.category_id else None,
+                    'model_year': product.model_year,
+                    'list_price': str(product.list_price),
+                    'created_at': product.created_at,
+                    'updated_at': product.updated_at,
+                    'deleted_at': product.deleted_at,
+                    'stock_info': _get_stock_info(product)
+                }
             return Response(response_data)
             
         except Exception as e:

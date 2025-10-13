@@ -76,6 +76,25 @@ order_direction_query = openapi.Parameter(
     default='desc'
 )
 
+# Stock item schema
+stock_item_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=['store_id', 'quantity'],
+    properties={
+        'store_id': openapi.Schema(
+            type=openapi.TYPE_INTEGER,
+            description='ID of the store',
+            example=1
+        ),
+        'quantity': openapi.Schema(
+            type=openapi.TYPE_INTEGER,
+            description='Quantity in stock',
+            example=10,
+            minimum=0
+        )
+    }
+)
+
 # Request body schema for creating/updating a product
 product_request_body = openapi.Schema(
     type=openapi.TYPE_OBJECT,
@@ -111,13 +130,50 @@ product_request_body = openapi.Schema(
             example=99.99,
             minimum=0
         ),
+        'stocks': openapi.Schema(
+            type=openapi.TYPE_ARRAY,
+            items=stock_item_schema,
+            description='List of stock entries for different stores',
+            example=[{"store_id": 1, "quantity": 10}]
+        )
     },
     example={
         'product_name': 'Classic T-Shirt',
         'brand_id': 1,
         'category_id': 1,
         'model_year': 2023,
-        'list_price': 99.99
+        'list_price': 99.99,
+        'stocks': [
+            {
+                'store_id': 1,
+                'quantity': 10
+            }
+        ]
+    }
+)
+
+# Stock info schema for response
+stock_info_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'total_stock': openapi.Schema(
+            type=openapi.TYPE_INTEGER,
+            description='Total quantity across all stores',
+            example=10
+        ),
+        'stocks': openapi.Schema(
+            type=openapi.TYPE_ARRAY,
+            items=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                    'store_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                    'store_name': openapi.Schema(type=openapi.TYPE_STRING, example='Main Store'),
+                    'quantity': openapi.Schema(type=openapi.TYPE_INTEGER, example=10),
+                    'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format='date-time')
+                }
+            )
+        )
     }
 )
 
@@ -146,7 +202,8 @@ product_response = openapi.Response(
             'model_year': openapi.Schema(type=openapi.TYPE_INTEGER),
             'list_price': openapi.Schema(type=openapi.TYPE_NUMBER, format='decimal'),
             'created_at': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
-            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format='date-time')
+            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+            'stock_info': stock_info_schema
         }
     )
 )
@@ -170,7 +227,13 @@ product_list_response = openapi.Response(
                         'brand_name': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
                         'category_name': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
                         'model_year': openapi.Schema(type=openapi.TYPE_INTEGER),
-                        'list_price': openapi.Schema(type=openapi.TYPE_NUMBER, format='decimal')
+                        'list_price': openapi.Schema(type=openapi.TYPE_NUMBER, format='decimal'),
+                        'stock_info': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'total_stock': openapi.Schema(type=openapi.TYPE_INTEGER, example=10)
+                            }
+                        )
                     }
                 )
             )
