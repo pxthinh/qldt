@@ -34,9 +34,4 @@ urlpatterns = [
     path('login/', views_auth.StaffLoginView.as_view(), name='login'),
     path('logout/', views_auth.StaffLogoutView.as_view(), name='logout'),
     path('profile/', views_auth.StaffProfileView.as_view(), name='profile'),
-    
-    # Swagger documentation
-    re_path(r'^swagger(?P<format>\.json|\.yaml)$', staff_schema_view.without_ui(cache_timeout=0), name='staff-schema-json'),
-    path('swagger/', staff_schema_view.with_ui('swagger', cache_timeout=0), name='staff-schema-swagger-ui'),
-    path('redoc/', staff_schema_view.with_ui('redoc', cache_timeout=0), name='staff-schema-redoc'),
 ]
