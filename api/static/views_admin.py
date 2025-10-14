@@ -68,7 +68,6 @@ from ..staff.models import Staff
     tags=['Static']
 )
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 @staff_required()
 def dashboard_statistics(request):
     """
@@ -169,7 +168,6 @@ def dashboard_statistics(request):
     tags=['Static']
 )
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def system_health(request):
     """
     Get system health and status information
