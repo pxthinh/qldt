@@ -47,6 +47,11 @@ order_create_request = openapi.Schema(
             enum=["credit_card", "paypal", "bank_transfer", "cod"],
             example="credit_card"
         ),
+        'store': openapi.Schema(
+            type=openapi.TYPE_INTEGER,
+            description="ID of the store placing the order",
+            example=1
+        ),
         'items': openapi.Schema(
             type=openapi.TYPE_ARRAY,
             description="List of order items",
@@ -72,15 +77,16 @@ order_create_request = openapi.Schema(
     },
     example={
         "customer_id": 1,
+        "store": 2,
         "shipping_address": "123 Main St, City, Country, 10001",
         "payment_method": "credit_card",
         "items": [
             {
-                "product_id": 101,
+                "product_id": 5,
                 "quantity": 2
             },
             {
-                "product_id": 205,
+                "product_id": 7,
                 "quantity": 1
             }
         ]

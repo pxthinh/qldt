@@ -1,13 +1,217 @@
+from django.db.models import Q, F, Sum
+from django.utils import timezone
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters, permissions, pagination
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db import transaction
-from django.utils import timezone
+
 from .models import Order, OrderItem
-from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateSerializer, OrderUpdateSerializer
+from .serializers import (
+    OrderSerializer, OrderCreateSerializer, OrderUpdateSerializer,
+    OrderItemSerializer
+)
+from api.store.models import Stock
+
+
+class IsCustomer(permissions.BasePermission):
+    """Allow access only to customers."""
+    def has_permission(self, request, view):
+        return hasattr(request.user, 'customer')
+
+
+class IsStaffOrAdmin(permissions.BasePermission):
+    """Allow access only to staff or admin users."""
+    def has_permission(self, request, view):
+        return request.user.is_staff or request.user.is_superuser
+
+
+class StandardResultsSetPagination(pagination.PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing orders.
+    """
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['id', 'customer__email', 'store__store_name']
+    ordering_fields = ['order_date', 'required_date', 'total_amount']
+    ordering = ['-order_date']
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        """
+        Filter orders based on user role:
+        - Customers can only see their own orders
+        - Staff can see all orders from their store
+        - Superusers can see all orders
+        """
+        queryset = super().get_queryset()
+        
+        if hasattr(self.request.user, 'customer'):
+            # Customer can only see their own orders
+            return queryset.filter(customer=self.request.user.customer)
+        elif hasattr(self.request.user, 'staff'):
+            # Staff can see all orders from their store
+            return queryset.filter(store=self.request.user.staff.store)
+        elif self.request.user.is_superuser:
+            # Superuser can see all orders
+            return queryset
+        
+        return queryset.none()
+
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.action in ['create', 'list', 'retrieve']:
+            permission_classes = [permissions.IsAuthenticated]
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            permission_classes = [IsStaffOrAdmin]
+        else:
+            permission_classes = [permissions.IsAdminUser]
+            
+        return [permission() for permission in permission_classes]
+
+    def get_serializer_class(self):
+        """
+        Return appropriate serializer class based on action.
+        """
+        if self.action == 'create':
+            return OrderCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return OrderUpdateSerializer
+        return OrderSerializer
+
+    @swagger_auto_schema(
+        operation_summary="Create a new order",
+        operation_description="""
+        Create a new order with order items.
+        - Customer will be set automatically from the authenticated user
+        - Order status will be set to PENDING by default
+        - Stock will be checked and reserved
+        """,
+        request_body=OrderCreateSerializer,
+        responses={
+            201: OrderSerializer(),
+            400: 'Invalid input',
+            403: 'Permission denied'
+        }
+    )
+    def create(self, request, *args, **kwargs):
+        """Create a new order."""
+        # Add customer to request data if not provided
+        if hasattr(request.user, 'customer'):
+            request.data['customer_id'] = request.user.customer.id
+        
+        return super().create(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_summary="Update order status",
+        operation_description="""
+        Update order status with validation.
+        Valid status transitions:
+        - PENDING -> PROCESSING or CANCELLED
+        - PROCESSING -> SHIPPED or CANCELLED
+        - SHIPPED -> DELIVERED
+        """,
+        request_body=OrderUpdateSerializer,
+        responses={
+            200: OrderSerializer(),
+            400: 'Invalid status transition',
+            403: 'Permission denied',
+            404: 'Order not found'
+        }
+    )
+    def update(self, request, *args, **kwargs):
+        """Update order status with validation."""
+        return super().update(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_summary="Cancel an order",
+        operation_description="""
+        Cancel an order and restore stock.
+        Only PENDING or PROCESSING orders can be cancelled.
+        """,
+        responses={
+            200: 'Order cancelled successfully',
+            400: 'Order cannot be cancelled',
+            403: 'Permission denied',
+            404: 'Order not found'
+        }
+    )
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel an order and restore stock."""
+        order = self.get_object()
+        
+        if not order.can_be_cancelled:
+            return Response(
+                {'error': 'Order cannot be cancelled in its current status'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        order.order_status = Order.OrderStatus.CANCELLED
+        order.save()
+        
+        return Response(
+            {'message': 'Order cancelled successfully'},
+            status=status.HTTP_200_OK
+        )
+
+    @swagger_auto_schema(
+        operation_summary="Get order items",
+        operation_description="Get all items for a specific order",
+        responses={
+            200: OrderItemSerializer(many=True),
+            403: 'Permission denied',
+            404: 'Order not found'
+        }
+    )
+    @action(detail=True, methods=['get'])
+    def items(self, request, pk=None):
+        """Get all items for a specific order."""
+        order = self.get_object()
+        items = order.items.all()
+        serializer = OrderItemSerializer(items, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_summary="Get order summary",
+        operation_description="Get summary of orders (total count, total amount, etc.)",
+        responses={
+            200: 'Order summary',
+            403: 'Permission denied'
+        }
+    )
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get order summary."""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Calculate summary
+        total_orders = queryset.count()
+        total_amount = queryset.aggregate(total=Sum('total_amount'))['total'] or 0
+        
+        # Group by status
+        status_counts = queryset.values('order_status').annotate(
+            count=models.Count('id'),
+            amount=Sum('total_amount')
+        )
+        
+        return Response({
+            'total_orders': total_orders,
+            'total_amount': float(total_amount),
+            'status_counts': status_counts
+        })
 
 class StandardResultsSetPagination(pagination.PageNumberPagination):
     page_size = 20

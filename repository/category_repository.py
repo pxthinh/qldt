@@ -2,7 +2,7 @@ from typing import Mapping, List, Dict
 from api.category.models import Category
 
 def list_categories(params: Mapping[str, str]) -> List[Dict]:
-    qs = Category.objects.all()
+    qs = Category.active_objects.all()
     name = (params.get('name') or '').strip()
     if name:
         qs = qs.filter(category_name__icontains=name)
