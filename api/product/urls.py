@@ -1,7 +1,7 @@
 from django.urls import path
-from . import views
+from .views import ProductListAPIView
 
 urlpatterns = [
     # Public endpoints
-    path('', views.get_all, name='product-list'),
+    path('', ProductListAPIView.as_view(), name='product-list'),
 ]
