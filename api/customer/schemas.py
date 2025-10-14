@@ -193,9 +193,10 @@ password_reset_request_schema = openapi.Schema(
 
 password_reset_confirm_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
-    required=['token', 'new_password'],
+    required=['token', 'confirm_password', 'new_password'],
     properties={
         'token': openapi.Schema(type=openapi.TYPE_STRING),
+        'confirm_password': openapi.Schema(type=openapi.TYPE_STRING, format='password'),
         'new_password': openapi.Schema(type=openapi.TYPE_STRING, format='password')
     }
 )

@@ -14,6 +14,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import Customer, RevokedAuthToken
 from .schemas import login_request, login_response, user_profile_response, update_profile_request, update_password_request
+from .authentication import CustomerTokenAuthentication
 
 AUTH_SALT = "customer-auth-token"
 AUTH_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
@@ -155,58 +156,59 @@ class CustomerLoginView(APIView):
         }, status=status.HTTP_200_OK)
 
 class CustomerProfileView(APIView):
+    authentication_classes = [CustomerTokenAuthentication]
     permission_classes = [IsAuthenticated]
-    
+
     @swagger_auto_schema(
         tags=['Auth Customer'],
         operation_summary="Get Profile",
         operation_description="Get current customer profile",
         responses={
             200: openapi.Response(
-                description="Customer profile",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'customer_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                        'user_name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'first_name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'last_name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'email': openapi.Schema(type=openapi.TYPE_STRING, format='email'),
-                        'phone': openapi.Schema(type=openapi.TYPE_STRING),
-                        'street': openapi.Schema(type=openapi.TYPE_STRING),
-                        'city': openapi.Schema(type=openapi.TYPE_STRING),
-                        'state': openapi.Schema(type=openapi.TYPE_STRING),
-                        'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
-                        'is_email_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                        'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                        'date_joined': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
-                    }
-                )
-            ),
-            401: 'Authentication credentials were not provided.'
+               description="Customer profile",
+               schema=openapi.Schema(
+                   type=openapi.TYPE_OBJECT,
+                   properties={
+                       'customer_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                       'user_name': openapi.Schema(type=openapi.TYPE_STRING),
+                       'first_name': openapi.Schema(type=openapi.TYPE_STRING),
+                       'last_name': openapi.Schema(type=openapi.TYPE_STRING),
+                       'email': openapi.Schema(type=openapi.TYPE_STRING, format='email'),
+                       'phone': openapi.Schema(type=openapi.TYPE_STRING),
+                       'street': openapi.Schema(type=openapi.TYPE_STRING),
+                       'city': openapi.Schema(type=openapi.TYPE_STRING),
+                       'state': openapi.Schema(type=openapi.TYPE_STRING),
+                       'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
+                       'is_email_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                       'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                       'date_joined': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+                   }
+               )
+           ),
+           401: 'Authentication credentials were not provided or invalid.',
+           403: 'Authentication failed.'
         },
         security=[{'Bearer': []}]
     )
     
     def get(self, request, *args, **kwargs):
-        obj, error = _customer_from_token(request)
-        if error:
-            return error
+        customer = request.user
         return Response({
-            "customer_id": obj.customer_id,
-            "user_name": obj.user_name,
-            "first_name": obj.first_name,
-            "last_name": obj.last_name,
-            "email": obj.email,
-            "phone": obj.phone,
-            "street": obj.street,
-            "city": obj.city,
-            "state": obj.state,
-            "zip_code": obj.zip_code,
-            "is_email_verified": obj.is_email_verified,
+            "customer_id": customer.customer_id,
+            "user_name": customer.user_name,
+            "first_name": customer.first_name,
+            "last_name": customer.last_name,
+            "email": customer.email,
+            "phone": customer.phone,
+            "street": customer.street,
+            "city": customer.city,
+            "state": customer.state,
+            "zip_code": customer.zip_code,
+            "is_email_verified": customer.is_email_verified,
         })
 
 class CustomerLogoutView(APIView):
+    authentication_classes = [CustomerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
@@ -219,14 +221,13 @@ class CustomerLogoutView(APIView):
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
-                        'detail': openapi.Schema(type=openapi.TYPE_STRING)
-                    },
-                    example={
-                        'detail': 'Successfully logged out'
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Successfully logged out')
                     }
                 )
             ),
-            401: 'Unauthorized - Invalid or missing token'
+            400: 'Bad request',
+            401: 'Authentication credentials were not provided or invalid.',
+            403: 'Authentication failed.'
         },
         security=[{'Bearer': []}]
     )
@@ -235,25 +236,24 @@ class CustomerLogoutView(APIView):
         token = _get_bearer_token(request)
         if not token:
             return Response(
-                {"detail": "Missing Bearer token"}, 
-                status=status.HTTP_401_UNAUTHORIZED
+                {"detail": "No authentication token provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
             )
-
-        fp = _token_fingerprint(token)
-        expires_at = timezone.now() + timedelta(seconds=AUTH_MAX_AGE)
-
+            
         try:
-            data = signing.loads(token, salt=AUTH_SALT, max_age=AUTH_MAX_AGE)
-            iat = data.get("iat")
-            if isinstance(iat, int):
-                issued_at = datetime.fromtimestamp(iat, tz=dt_timezone.utc)
-                expires_at = issued_at + timedelta(seconds=AUTH_MAX_AGE)
+            # Create a record of the revoked token
+            fp = _token_fingerprint(token)
+            expires_at = timezone.now() + timedelta(seconds=AUTH_MAX_AGE)
+            
+            # Check if this token is already revoked
+            if not RevokedAuthToken.objects.filter(fingerprint=fp).exists():
+                RevokedAuthToken.objects.create(
+                    fingerprint=fp,
+                    expires_at=expires_at
+                )
                 
-            # Add token to revocation list
-            RevokedAuthToken.objects.create(
-                fingerprint=fp,
-                expires_at=expires_at
-            )
+            # Invalidate the session
+            request.session.flush()
             
             return Response(
                 {"detail": "Successfully logged out"}, 
@@ -262,6 +262,8 @@ class CustomerLogoutView(APIView):
             
         except signing.SignatureExpired:
             # If token is expired, still add it to revocation list
+            fp = _token_fingerprint(token)
+            expires_at = timezone.now() + timedelta(seconds=AUTH_MAX_AGE)
             RevokedAuthToken.objects.create(
                 fingerprint=fp,
                 expires_at=expires_at
@@ -279,6 +281,7 @@ class CustomerLogoutView(APIView):
 
 
 class CustomerUpdateProfileView(APIView):
+    authentication_classes = [CustomerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
@@ -314,7 +317,7 @@ class CustomerUpdateProfileView(APIView):
     )
     
     def put(self, request, *args, **kwargs):
-        customer = request.user.customer
+        customer = request.user
         data = request.data
         
         # Update fields if they are provided in the request
@@ -364,6 +367,7 @@ class CustomerUpdateProfileView(APIView):
 
 
 class CustomerUpdatePasswordView(APIView):
+    authentication_classes = [CustomerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
@@ -390,7 +394,7 @@ class CustomerUpdatePasswordView(APIView):
     )
     
     def put(self, request, *args, **kwargs):
-        customer = request.user.customer
+        customer = request.user
         data = request.data
         
         current_password = data.get('current_password')
