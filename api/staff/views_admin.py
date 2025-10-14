@@ -45,9 +45,9 @@ def _get_export_filename(base_name, format_type):
 
 class StaffAdminViewSet(viewsets.ModelViewSet):
     """
-    API endpoint for managing staff members.
+    API endpoint for managing staff members with store associations.
     
-    This endpoint allows admin users to manage staff accounts in the system.
+    This endpoint allows admin users to manage staff accounts and their store associations.
     All operations require admin privileges.
     
     ## Available Actions
@@ -60,8 +60,10 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
     - **Update Staff**: PUT /api/admin/staff/{id}/
     - **Delete Staff**: DELETE /api/admin/staff/{id}/ (soft delete)
     - **Activate Staff**: POST /api/admin/staff/{id}/activate/
+    - **Get Staff by Store**: GET /api/admin/staff/by-store/{store_id}/
+    - **Update Store Assignment**: POST /api/admin/staff/{id}/update-store/
     """
-    queryset = Staff.objects.all()
+    queryset = Staff.objects.all().select_related('manager')
     http_method_names = ['get', 'post', 'put', 'delete']
     
     def get_permissions(self):
@@ -73,22 +75,88 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
         return super().dispatch(*args, **kwargs)
 
     def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
+        if self.action in ['create', 'update', 'partial_update', 'update_store']:
             return StaffCreateUpdateSerializer
         return StaffSerializer
 
     def get_queryset(self):
+        from api.store.models import Store
+        
         queryset = super().get_queryset()
-        # Add filtering if needed
         search = self.request.query_params.get('search', None)
+        store_id = self.request.query_params.get('store_id')
+        
+        # Apply search filter
         if search:
+            # Get store IDs that match the search
+            store_ids = Store.objects.filter(
+                store_name__icontains=search
+            ).values_list('id', flat=True)
+            
             queryset = queryset.filter(
                 Q(username__icontains=search) |
                 Q(email__icontains=search) |
                 Q(first_name__icontains=search) |
-                Q(last_name__icontains=search)
+                Q(last_name__icontains=search) |
+                Q(store_id__in=store_ids)
             )
-        return queryset
+            
+        # Filter by store if store_id is provided
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+            
+        # Order by store name by joining with Store model
+        return queryset.order_by('store_id', 'last_name', 'first_name')
+        
+    def perform_create(self, serializer):
+        """Handle staff creation with store assignment."""
+        # The store_id is now handled directly in the serializer
+        serializer.save()
+            
+    def perform_update(self, serializer):
+        """Handle staff update with store assignment."""
+        # The store_id is now handled directly in the serializer
+        serializer.save()
+    
+    @action(detail=True, methods=['post'])
+    def update_store(self, request, pk=None):
+        """
+        Update store assignment for a staff member.
+        
+        Request body should contain 'store_id' (can be null to unassign from store).
+        """
+        staff = self.get_object()
+        store_id = request.data.get('store_id')
+        
+        if store_id is not None:
+            from store.models import Store
+            try:
+                store = Store.objects.get(pk=store_id)
+                staff.store = store
+            except Store.DoesNotExist:
+                return Response(
+                    {"detail": f"Store with ID {store_id} does not exist."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            staff.store = None
+            
+        staff.save()
+        return Response(StaffSerializer(staff).data)
+    
+    @action(detail=False, methods=['get'], url_path='by-store/(?P<store_id>[^/.]+)')
+    def by_store(self, request, store_id=None):
+        """
+        List all staff members assigned to a specific store.
+        """
+        staff_list = self.get_queryset().filter(store_id=store_id, is_active=True)
+        page = self.paginate_queryset(staff_list)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+            
+        serializer = self.get_serializer(staff_list, many=True)
+        return Response(serializer.data)
         
     @action(detail=False, methods=['get'])
     @swagger_auto_schema(

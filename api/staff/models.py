@@ -5,6 +5,13 @@ from django.utils.crypto import get_random_string
 from datetime import timedelta
 from django.utils import timezone
 
+# Import Store model using the full app path to avoid circular imports
+from django.apps import apps
+
+# This is a function to avoid circular imports
+def get_store_model():
+    return apps.get_model('store', 'Store')
+
 
 class Store(models.Model):
     """Store model for managing retail locations."""

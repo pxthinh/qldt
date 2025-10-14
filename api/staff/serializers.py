@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.hashers import check_password
 from django.utils.translation import gettext_lazy as _
 from .models import Staff
-from django.core.exceptions import ValidationError
+from api.store.models import Store
 
 class StaffAuthTokenSerializer(serializers.Serializer):
     username = serializers.CharField(label=_("Username"))
@@ -62,14 +62,38 @@ class StaffAuthTokenSerializer(serializers.Serializer):
         attrs['user'] = staff
         return attrs
 
+class StoreSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Store
+        fields = ['store_id', 'store_name', 'phone', 'email', 'street', 'city', 'state', 'zip_code']
 
 class StaffSerializer(serializers.ModelSerializer):
+    store = serializers.SerializerMethodField()
+    store_id = serializers.IntegerField(required=False, allow_null=True)
+    
     class Meta:
         model = Staff
         fields = ('staff_id', 'username', 'email', 'first_name', 'last_name', 'phone', 
-                 'is_active', 'created_at', 'updated_at', 'store_id', 'manager_id')
+                 'is_active', 'created_at', 'updated_at', 'store', 'store_id', 'manager')
         read_only_fields = ('staff_id', 'created_at', 'updated_at')
-
+    
+    def get_store(self, obj):
+        if not hasattr(obj, 'store_id') or obj.store_id is None:
+            return None
+        try:
+            store = Store.objects.get(pk=obj.store_id)
+            return {
+                'store_id': store.id,
+                'store_name': store.store_name,
+                'email': store.email,
+                'phone': store.phone,
+                'street': store.street,
+                'city': store.city,
+                'state': store.state,
+                'zip_code': store.zip_code
+            }
+        except Store.DoesNotExist:
+            return None
 
 class StoreCreateSerializer(serializers.Serializer):
     store_name = serializers.CharField(required=True, help_text="Name of the store")
@@ -208,20 +232,52 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from api.store.models import Store
-        
+        from django.db import transaction
+
+        # Extract related data first
         store_data = validated_data.pop('store', None)
-        password = validated_data.pop('password')
-        
-        # Create store if store_data is provided
-        if store_data:
-            store = Store.objects.create(**store_data)
-            validated_data['store_id'] = store.id  # Changed from store.store_id to store.id
-        
-        # Create staff
-        staff = Staff(**validated_data)
-        staff.set_password(password)
-        staff.save()
-        return staff
+        manager_id = validated_data.pop('manager', None)
+        password = validated_data.pop('password', None)
+        store_id = validated_data.pop('store_id', None)
+
+        with transaction.atomic():
+            # Handle store assignment
+            if store_id:
+                # Use the provided store_id
+                validated_data['store_id'] = store_id
+            elif store_data:
+                # Create new store if store data is provided
+                store = Store.objects.create(
+                    store_name=store_data.get('store_name', '').strip(),
+                    phone=store_data.get('phone', '').strip(),
+                    email=store_data.get('email', '').strip(),
+                    street=store_data.get('street', '').strip(),
+                    city=store_data.get('city', '').strip(),
+                    state=store_data.get('state', '').strip(),
+                    zip_code=store_data.get('zip_code', '').strip()
+                )
+                validated_data['store_id'] = store.id
+                print(f"Created store with id {store.id}")
+            # else: store_id remains None if not provided
+
+            # Handle manager assignment
+            if manager_id and manager_id != 0:
+                try:
+                    manager = Staff.objects.get(pk=manager_id)
+                    validated_data['manager'] = manager
+                except Staff.DoesNotExist:
+                    raise serializers.ValidationError({"manager": f"Manager with ID {manager_id} does not exist."})
+
+            # Create and save the staff instance
+            staff = Staff(**validated_data)
+            
+            # Set password if provided
+            if password:
+                staff.set_password(password)
+            
+            staff.save()
+            print(f"Created staff with id {staff.staff_id}")
+            return staff
 
     def update(self, instance, validated_data):
         from api.store.models import Store
