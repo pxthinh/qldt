@@ -91,7 +91,7 @@ SWAGGER_SETTINGS = {
 }
 
 # Custom user model
-AUTH_USER_MODEL = 'customer.Customer'
+AUTH_USER_MODEL = 'auth.User'
 
 # Application definition
 INSTALLED_APPS = [

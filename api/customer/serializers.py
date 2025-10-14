@@ -7,22 +7,24 @@ class CustomerSerializer(serializers.ModelSerializer):
     Serializer for the Customer model.
     Handles serialization and deserialization of Customer instances.
     """
-    username = serializers.CharField(source='user_name')
+    user_name = serializers.CharField()
     email = serializers.EmailField()
     first_name = serializers.CharField()
+    password = serializers.CharField(
+        style={'input_type': 'password'},
+        trim_whitespace=False,
+        write_only=True
+    )
     last_name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
-    is_active = serializers.BooleanField(default=True)
-    date_joined = serializers.DateTimeField(read_only=True)
-    last_login = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Customer
         fields = [
-            'customer_id', 'username', 'email', 'first_name', 'last_name',
-            'phone', 'is_active', 'date_joined', 'last_login'
+            'customer_id', 'user_name', 'email', 'first_name', 'last_name',
+            'phone', 'password'
         ]
-        read_only_fields = ['customer_id', 'date_joined', 'last_login']
+        read_only_fields = ['customer_id']
         extra_kwargs = {
             'password': {'write_only': True, 'required': False}
         }

@@ -180,8 +180,6 @@ class CustomerProfileView(APIView):
                        'state': openapi.Schema(type=openapi.TYPE_STRING),
                        'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
                        'is_email_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                       'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                       'date_joined': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
                    }
                )
            ),
