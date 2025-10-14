@@ -155,7 +155,7 @@ def brand_admin_list(request):
 @api_view(['GET', 'PUT', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
-@staff_required
+@staff_required()
 def brand_admin_detail(request, id: int):
     try:
         obj = Brand.objects.get(pk=id, deleted_at__isnull=True)
