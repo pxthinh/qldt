@@ -106,9 +106,9 @@ class CustomerLoginView(APIView):
     )
     
     def post(self, request, *args, **kwargs):
-        body = _json_body(request)
-        user_name = (body.get("user_name") or "").strip()
-        password = (body.get("password") or "").strip()
+        data = request.data
+        user_name = (data.get("user_name") or "").strip()
+        password = (data.get("password") or "").strip()
 
         if not user_name or not password:
             return Response(
@@ -130,7 +130,7 @@ class CustomerLoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        if not obj.is_active:
+        if not obj.is_email_verified:
             return Response(
                 {"detail": "Account is not active"}, 
                 status=status.HTTP_403_FORBIDDEN
@@ -177,7 +177,7 @@ class CustomerProfileView(APIView):
                         'city': openapi.Schema(type=openapi.TYPE_STRING),
                         'state': openapi.Schema(type=openapi.TYPE_STRING),
                         'zip_code': openapi.Schema(type=openapi.TYPE_STRING),
-                        'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'is_email_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
                         'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
                         'date_joined': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
                     }
@@ -203,9 +203,7 @@ class CustomerProfileView(APIView):
             "city": obj.city,
             "state": obj.state,
             "zip_code": obj.zip_code,
-            "is_active": obj.is_active,
-            "is_staff": obj.is_staff,
-            "date_joined": obj.date_joined.isoformat() if obj.date_joined else None,
+            "is_email_verified": obj.is_email_verified,
         })
 
 class CustomerLogoutView(APIView):
@@ -418,8 +416,6 @@ class CustomerUpdatePasswordView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # TODO: Add password validation (length, complexity, etc.)
-        
         # Update password
         customer.set_password(new_password)
         customer.save()
