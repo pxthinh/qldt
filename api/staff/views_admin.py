@@ -60,8 +60,6 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
     - **Update Staff**: PUT /api/admin/staff/{id}/
     - **Delete Staff**: DELETE /api/admin/staff/{id}/ (soft delete)
     - **Activate Staff**: POST /api/admin/staff/{id}/activate/
-    - **Get Staff by Store**: GET /api/admin/staff/by-store/{store_id}/
-    - **Update Store Assignment**: POST /api/admin/staff/{id}/update-store/
     """
     queryset = Staff.objects.all().select_related('manager')
     http_method_names = ['get', 'post', 'put', 'delete']
@@ -118,46 +116,6 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
         # The store_id is now handled directly in the serializer
         serializer.save()
     
-    @action(detail=True, methods=['post'])
-    def update_store(self, request, pk=None):
-        """
-        Update store assignment for a staff member.
-        
-        Request body should contain 'store_id' (can be null to unassign from store).
-        """
-        staff = self.get_object()
-        store_id = request.data.get('store_id')
-        
-        if store_id is not None:
-            from store.models import Store
-            try:
-                store = Store.objects.get(pk=store_id)
-                staff.store = store
-            except Store.DoesNotExist:
-                return Response(
-                    {"detail": f"Store with ID {store_id} does not exist."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        else:
-            staff.store = None
-            
-        staff.save()
-        return Response(StaffSerializer(staff).data)
-    
-    @action(detail=False, methods=['get'], url_path='by-store/(?P<store_id>[^/.]+)')
-    def by_store(self, request, store_id=None):
-        """
-        List all staff members assigned to a specific store.
-        """
-        staff_list = self.get_queryset().filter(store_id=store_id, is_active=True)
-        page = self.paginate_queryset(staff_list)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-            
-        serializer = self.get_serializer(staff_list, many=True)
-        return Response(serializer.data)
-        
     @action(detail=False, methods=['get'])
     @swagger_auto_schema(
         operation_summary='Export Staff Data',
