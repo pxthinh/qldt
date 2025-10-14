@@ -13,8 +13,6 @@ class StandardResultsSetPagination(pagination.PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
-from .serializers import OrderSerializer, OrderItemSerializer, OrderCreateSerializer, OrderUpdateSerializer
-from django.db import transaction
 
 class IsCustomer(permissions.BasePermission):
     """
@@ -24,7 +22,7 @@ class IsCustomer(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and hasattr(request.user, 'customer'))
 
 @swagger_auto_schema(
-    tags=['FE'],
+    tags=['Orders'],
     operation_description="Order management endpoints"
 )
 class OrderViewSet(viewsets.ModelViewSet):
@@ -40,15 +38,43 @@ class OrderViewSet(viewsets.ModelViewSet):
     search_fields = ['order_id', 'order_status']
     ordering_fields = ['order_date', 'required_date', 'shipped_date', 'order_status']
     parser_classes = [JSONParser, MultiPartParser, FormParser]
-    
-    def get_swagger_tags(self):
-        return ['FE']
-        
+
+    def get_serializer_class(self):
         if self.action == 'create':
             return OrderCreateSerializer
         elif self.action in ['update', 'partial_update']:
             return OrderUpdateSerializer
         return OrderSerializer
+
+    @swagger_auto_schema(tags=['Orders'])
+    def list(self, request, *args, **kwargs):
+        """List all orders for the current customer."""
+        return super().list(request, *args, **kwargs)
+
+    @swagger_auto_schema(tags=['Orders'])
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a specific order's details."""
+        return super().retrieve(request, *args, **kwargs)
+
+    @swagger_auto_schema(tags=['Orders'])
+    def create(self, request, *args, **kwargs):
+        """Create a new order."""
+        return super().create(request, *args, **kwargs)
+
+    @swagger_auto_schema(tags=['Orders'])
+    def update(self, request, *args, **kwargs):
+        """Update an existing order."""
+        return super().update(request, *args, **kwargs)
+
+    @swagger_auto_schema(tags=['Orders'])
+    def partial_update(self, request, *args, **kwargs):
+        """Partially update an existing order."""
+        return super().partial_update(request, *args, **kwargs)
+
+    @swagger_auto_schema(tags=['Orders'])
+    def destroy(self, request, *args, **kwargs):
+        """Delete an order."""
+        return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
         """Return only the orders belonging to the current customer."""
@@ -64,14 +90,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         Orders can be filtered and ordered by various fields.
         """,
         manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, 
-                            description="Search by order ID or status", 
+            openapi.Parameter('search', openapi.IN_QUERY,
+                            description="Search by order ID or status",
                             type=openapi.TYPE_STRING,
                             required=False),
-            openapi.Parameter('ordering', openapi.IN_QUERY, 
-                            description="Which field to use when ordering the results (prefix with '-' for descending order)", 
+            openapi.Parameter('ordering', openapi.IN_QUERY,
+                            description="Which field to use when ordering the results (prefix with '-' for descending order)",
                             type=openapi.TYPE_STRING,
-                            enum=['order_date', '-order_date', 'required_date', '-required_date', 
+                            enum=['order_date', '-order_date', 'required_date', '-required_date',
                                  'shipped_date', '-shipped_date', 'order_status', '-order_status'],
                             required=False),
             openapi.Parameter('status', openapi.IN_QUERY,
@@ -137,7 +163,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 )
             )
         },
-        security=[{"Bearer": []}]
+        security=[{"Bearer": []}],
+        tags=['Orders']
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -146,7 +173,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         operation_summary="Create order",
         operation_description="""
         Create a new order with order items.
-        
+
         Required fields:
         - shipping_address: Shipping address ID
         - payment_method: Payment method (e.g., 'credit_card', 'paypal')
@@ -158,12 +185,12 @@ class OrderViewSet(viewsets.ModelViewSet):
             properties={
                 'shipping_address': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the shipping address'),
                 'payment_method': openapi.Schema(
-                    type=openapi.TYPE_STRING, 
+                    type=openapi.TYPE_STRING,
                     enum=['credit_card', 'paypal', 'bank_transfer'],
                     description='Payment method for the order'
                 ),
                 'notes': openapi.Schema(
-                    type=openapi.TYPE_STRING, 
+                    type=openapi.TYPE_STRING,
                     description='Additional notes for the order',
                     maxLength=500
                 ),
@@ -176,7 +203,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                             'product_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the product to order'),
                             'quantity': openapi.Schema(type=openapi.TYPE_INTEGER, minimum=1, description='Quantity to order'),
                             'discount': openapi.Schema(
-                                type=openapi.TYPE_NUMBER, 
+                                type=openapi.TYPE_NUMBER,
                                 format=openapi.FORMAT_DECIMAL,
                                 minimum=0,
                                 maximum=1,
@@ -287,16 +314,17 @@ class OrderViewSet(viewsets.ModelViewSet):
                 }
             )
         },
-        security=[{"Bearer": []}]
+        security=[{"Bearer": []}],
+        tags=['Orders']
     )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         with transaction.atomic():
             # Set the customer to the current user's customer profile
             order = serializer.save(customer=request.user.customer)
-            
+
         headers = self.get_success_headers(serializer.data)
         return Response(
             OrderSerializer(order, context=self.get_serializer_context()).data,
@@ -317,7 +345,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 type=openapi.TYPE_OBJECT,
                 properties={'detail': openapi.Schema(type=openapi.TYPE_STRING)}
             ))
-        }
+        },
+        tags=['Orders']
     )
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
@@ -344,22 +373,23 @@ class OrderViewSet(viewsets.ModelViewSet):
                 type=openapi.TYPE_OBJECT,
                 properties={'detail': openapi.Schema(type=openapi.TYPE_STRING)}
             ))
-        }
+        },
+        tags=['Orders']
     )
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        
+
         # Only allow updating certain fields
         allowed_fields = ['shipping_address', 'billing_address', 'status']
         update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
-        
+
         serializer = self.get_serializer(instance, data=update_data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        
+
         with transaction.atomic():
             self.perform_update(serializer)
-            
+
         return Response(OrderSerializer(instance).data)
 
     @swagger_auto_schema(
@@ -383,18 +413,19 @@ class OrderViewSet(viewsets.ModelViewSet):
                 type=openapi.TYPE_OBJECT,
                 properties={'detail': openapi.Schema(type=openapi.TYPE_STRING)}
             ))
-        }
+        },
+        tags=['Orders']
     )
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        
+
         # Only allow deletion of pending orders
         if instance.order_status != 'pending':
             return Response(
                 {'detail': 'Only pending orders can be deleted'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
+
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -412,7 +443,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 type=openapi.TYPE_OBJECT,
                 properties={'detail': openapi.Schema(type=openapi.TYPE_STRING)}
             ))
-        }
+        },
+        tags=['Orders']
     )
     @action(detail=True, methods=['get'], url_path='items')
     def items(self, request, pk=None):

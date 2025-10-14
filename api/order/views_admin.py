@@ -41,6 +41,7 @@ def _staff_required(view_func):
 @swagger_auto_schema(
     method='get',
     operation_id="order_list",
+    tags=['Admin Orders'],
     manual_parameters=[order_status_query, date_after_query, date_before_query],
     responses={
         status.HTTP_200_OK: order_list_response,
@@ -56,7 +57,6 @@ def _staff_required(view_func):
         )
     },
     security=[{"Bearer": []}],
-    tags=['Admin Orders'],
     operation_summary='List Orders (Admin)',
     operation_description='Returns a list of all orders, optionally filtered by status and date range.'
 )
@@ -64,6 +64,7 @@ def _staff_required(view_func):
     method='post',
     operation_id="order_create",
     request_body=order_create_request,
+    tags=['Admin Orders'],
     responses={
         status.HTTP_201_CREATED: order_detail_response,
         status.HTTP_400_BAD_REQUEST: openapi.Response(
@@ -78,7 +79,6 @@ def _staff_required(view_func):
         )
     },
     security=[{"Bearer": []}],
-    tags=['Admin Orders'],
     operation_summary='Create Order (Admin)',
     operation_description='Create a new order with the provided data.'
 )
@@ -149,6 +149,7 @@ def order_admin_list(request):
 @swagger_auto_schema(
     method='get',
     operation_id="order_retrieve",
+    tags=['Admin Orders'],
     manual_parameters=[order_id_param],
     responses={
         status.HTTP_200_OK: order_detail_response,
@@ -157,7 +158,6 @@ def order_admin_list(request):
         status.HTTP_403_FORBIDDEN: 'Forbidden',
     },
     security=[[{"Bearer": []}]],
-    tags=['Admin Orders'],
     operation_summary='Retrieve Order (Admin)',
     operation_description='Retrieve details of a specific order by ID.'
 )
@@ -181,6 +181,7 @@ def order_admin_list(request):
 @swagger_auto_schema(
     method='delete',
     operation_id="order_delete",
+    tags=['Admin Orders'],
     manual_parameters=[order_id_param],
     responses={
         status.HTTP_204_NO_CONTENT: 'Order successfully deleted',
@@ -189,7 +190,6 @@ def order_admin_list(request):
         status.HTTP_403_FORBIDDEN: 'Forbidden',
     },
     security=[[{"Bearer": []}]],
-    tags=['Admin Orders'],
     operation_summary='Delete Order (Admin)',
     operation_description='Delete an order by ID.'
 )

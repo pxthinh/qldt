@@ -1,4 +1,3 @@
-# api/customer/views_public.py
 import json
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -50,18 +49,18 @@ def _send_verification_email(request, customer: Customer):
 @api_view(['POST'])
 @csrf_exempt
 def customer_register(request):
-    body = _json_body(request)
+    data = request.data
 
-    user_name = (body.get("user_name") or "").strip()
-    password  = (body.get("password") or "").strip()
-    first_name = (body.get("first_name") or "").strip()
-    last_name  = (body.get("last_name") or "").strip() or None
-    email = (body.get("email") or "").strip().lower()
-    phone = (body.get("phone") or "").strip() or None
-    street = body.get("street") or None
-    city   = body.get("city") or None
-    state  = body.get("state") or None
-    zip_code = body.get("zip_code") or None
+    user_name = (data.get("user_name") or "").strip()
+    password = (data.get("password") or "").strip()
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip() or None
+    email = (data.get("email") or "").strip().lower()
+    phone = (data.get("phone") or "").strip() or None
+    street = data.get("street") or None
+    city = data.get("city") or None
+    state = data.get("state") or None
+    zip_code = data.get("zip_code") or None
 
     if not user_name:
         return JsonResponse({"detail": "user_name is required"}, status=400)
@@ -100,14 +99,36 @@ def customer_register(request):
         "detail": "Registered. Please check your email to confirm."
     }, status=201)
 
+
 @swagger_auto_schema(
     method='get',
     tags=['Customer'],
     operation_summary="Confirm Email",
     operation_description="Confirm customer email with verification token",
+    manual_parameters=[
+        openapi.Parameter(
+            'token', openapi.IN_QUERY,
+            description="Verification token from email link",
+            type=openapi.TYPE_STRING,
+            required=True
+        )
+    ],
     responses={
-        200: "Email confirmed successfully",
-        400: "Invalid or expired token"
+        200: openapi.Response(
+            description="Email confirmed successfully",
+            examples={"application/json": {"msg": "Email verified successfully"}}
+        ),
+        400: openapi.Response(
+            description="Invalid or expired token",
+            examples={
+                "application/json": {"msg": "Invalid token"},
+                "application/json": {"msg": "Token expired"}
+            }
+        ),
+        404: openapi.Response(
+            description="Customer not found",
+            examples={"application/json": {"msg": "Customer not found"}}
+        )
     }
 )
 @api_view(['GET'])
@@ -137,21 +158,37 @@ def customer_confirm_email(request):
     obj.save(update_fields=["is_email_verified"])
     return JsonResponse({"msg": "Email verified successfully"})
 
+
 @swagger_auto_schema(
     method='post',
     tags=['Customer'],
     operation_summary="Resend Confirmation",
-    operation_description="Resend email confirmation",
+    operation_description="Resend email confirmation to customer",
     request_body=openapi.Schema(
         type=openapi.TYPE_OBJECT,
         required=['email'],
         properties={
-            'email': openapi.Schema(type=openapi.TYPE_STRING, format='email')
+            'email': openapi.Schema(type=openapi.TYPE_STRING, format='email', description="Customer email address"),
+            'user_name': openapi.Schema(type=openapi.TYPE_STRING, description="Customer user name (optional)")
         }
     ),
     responses={
-        200: "Confirmation email resent",
-        400: "Invalid email or user already verified"
+        200: openapi.Response(
+            description="Confirmation email resent",
+            examples={"application/json": {"detail": "Verification email sent"}}
+        ),
+        400: openapi.Response(
+            description="Invalid email or user already verified",
+            examples={
+                "application/json": {"detail": "email already verified"},
+                "application/json": {"detail": "Account has no email to send to"},
+                "application/json": {"detail": "user_name or email is required"}
+            }
+        ),
+        404: openapi.Response(
+            description="Account not found",
+            examples={"application/json": {"detail": "If the account exists, an email has been sent."}}
+        )
     }
 )
 @api_view(['POST'])
@@ -171,6 +208,7 @@ def customer_resend_confirmation(request):
         else:
             obj = Customer.objects.get(email__iexact=email)
     except Customer.DoesNotExist:
+        # deliberately vague to prevent user enumeration
         return JsonResponse({"detail": "If the account exists, an email has been sent."})
 
     if not obj.email:

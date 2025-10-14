@@ -10,8 +10,9 @@ class Order(models.Model):
     class OrderStatus(models.IntegerChoices):
         PENDING = 1, 'Pending'
         PROCESSING = 2, 'Processing'
-        REJECTED = 3, 'Rejected'
-        COMPLETED = 4, 'Completed'
+        SHIPPED = 3, 'Shipped'
+        DELIVERED = 4, 'Delivered'
+        CANCELLED = 5, 'Cancelled'
 
     order_id = models.AutoField(primary_key=True)
     customer = models.ForeignKey(
@@ -55,27 +56,33 @@ class Order(models.Model):
         super().save(*args, **kwargs)
     
     def handle_status_change(self, old_status):
-        """Handle stock updates when order status changes"""
-        # If order is being completed, reduce stock
-        if self.order_status == self.OrderStatus.COMPLETED:
+        """Handle stock updates and validation when order status changes"""
+        # Validate status transition
+        valid_transitions = {
+            self.OrderStatus.PENDING: [self.OrderStatus.PROCESSING, self.OrderStatus.CANCELLED],
+            self.OrderStatus.PROCESSING: [self.OrderStatus.SHIPPED, self.OrderStatus.CANCELLED],
+            self.OrderStatus.SHIPPED: [self.OrderStatus.DELIVERED],
+            self.OrderStatus.DELIVERED: [],
+            self.OrderStatus.CANCELLED: []
+        }
+        
+        if (old_status != self.order_status and 
+                self.order_status not in valid_transitions.get(old_status, [])):
+            raise ValidationError(f"Invalid status transition from {self.get_order_status_display()} to {self.get_order_status_display()}")
+        
+        # Handle stock updates
+        if (old_status == self.OrderStatus.PROCESSING and 
+                self.order_status in [self.OrderStatus.SHIPPED, self.OrderStatus.CANCELLED]):
+            # Reduce stock when shipping or cancelling a processing order
             for item in self.items.all():
                 try:
                     Stock.update_stock(
                         store_id=self.store_id,
                         product_id=item.product_id,
-                        quantity_change=-item.quantity
+                        quantity_change=-item.quantity if self.order_status == self.OrderStatus.SHIPPED else item.quantity
                     )
                 except ValueError as e:
-                    raise ValidationError(f"Insufficient stock for {item.product.product_name}")
-        
-        # If order was completed but status is changed back, restore stock
-        elif old_status == self.OrderStatus.COMPLETED:
-            for item in self.items.all():
-                Stock.update_stock(
-                    store_id=self.store_id,
-                    product_id=item.product_id,
-                    quantity_change=item.quantity
-                )
+                    raise ValidationError(f"Stock update failed: {str(e)}")
 
     class Meta:
         db_table = 'orders'
