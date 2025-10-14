@@ -541,6 +541,7 @@ class StaffAdminViewSet(viewsets.ModelViewSet):
         - This will allow the staff member to log in again
         - The staff member will retain their previous permissions
         """,
+        request_body=None,
         responses={
             200: openapi.Response('Staff member activated successfully', StaffSerializer),
             403: 'Forbidden - User does not have permission',
