@@ -180,6 +180,16 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'non_field_errors': ["Cannot provide both 'store' and 'store_id'. Choose one."]
             })
+            
+        # Validate store_id exists if provided
+        store_id = attrs.get('store_id')
+        if store_id is not None:
+            from api.store.models import Store
+            if not Store.objects.filter(pk=store_id).exists():
+                raise serializers.ValidationError({
+                    'store_id': f"Store with ID {store_id} does not exist."
+                })
+                
         return attrs
 
     def validate_username(self, value):
