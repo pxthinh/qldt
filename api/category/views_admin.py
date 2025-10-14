@@ -124,7 +124,7 @@ def category_admin_list(request):
 @category_retrieve_schema
 @category_update_schema
 @category_delete_schema
-@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@api_view(['GET', 'PUT', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
 @staff_required()
@@ -147,8 +147,8 @@ def category_admin_detail(request, id):
         }
         return Response(response_data)
     
-    elif request.method in ['PUT', 'PATCH']:
-        # Handle PUT/PATCH request - Update category
+    elif request.method in ['PUT']:
+        # Handle PUT request - Update category
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data
         
         # Validate required fields

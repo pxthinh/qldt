@@ -26,8 +26,9 @@ SECRET_KEY = 'django-insecure-c=tyi3=_2i_yomp(r5u4#vec^y&5ab$r=gl&td-j&gu)$)uffe
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    '3210e5687dfe.ngrok-free.app',
-    '127.0.0.1'
+    '546d75ee2ccf.ngrok-free.app',
+    '127.0.0.1',
+    'localhost'
 ]
 
 # Token settings

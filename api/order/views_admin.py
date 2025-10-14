@@ -162,7 +162,7 @@ def order_admin_list(request):
     operation_description='Retrieve details of a specific order by ID.'
 )
 @swagger_auto_schema(
-    methods=['put', 'patch'],
+    methods=['put'],
     operation_id="order_update",
     manual_parameters=[order_id_param],
     request_body=order_update_request,
@@ -193,7 +193,7 @@ def order_admin_list(request):
     operation_summary='Delete Order (Admin)',
     operation_description='Delete an order by ID.'
 )
-@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@api_view(['GET', 'PUT', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
 @_staff_required
@@ -213,7 +213,7 @@ def order_admin_detail(request, id):
         serializer = OrderSerializer(order)
         return Response(serializer.data)
 
-    elif request.method in ['PUT', 'PATCH']:
+    elif request.method in ['PUT']:
         try:
             partial = request.method == 'PATCH'
             serializer = OrderUpdateSerializer(order, data=request.data, partial=partial)

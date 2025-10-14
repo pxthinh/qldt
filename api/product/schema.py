@@ -344,7 +344,7 @@ product_retrieve_schema = swagger_auto_schema(
 )
 
 product_update_schema = swagger_auto_schema(
-    methods=['put', 'patch'],
+    methods=['put'],
     operation_id="product_update",
     manual_parameters=[product_id_param],
     request_body=product_request_body,

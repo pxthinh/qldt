@@ -189,7 +189,7 @@ category_retrieve_schema = swagger_auto_schema(
 )
 
 category_update_schema = swagger_auto_schema(
-    methods=['put', 'patch'],
+    methods=['put'],
     operation_id="category_update",
     manual_parameters=[category_id_param],
     request_body=category_request_body,

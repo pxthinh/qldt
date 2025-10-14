@@ -125,7 +125,7 @@ def brand_admin_list(request):
     operation_description='Retrieve details of a specific brand by ID.'
 )
 @swagger_auto_schema(
-    methods=['put', 'patch'],
+    methods=['put'],
     operation_id="brand_update",
     manual_parameters=[brand_id_param],
     request_body=brand_post_request_body,
@@ -152,7 +152,7 @@ def brand_admin_list(request):
     operation_summary='Delete Brand (Admin)',
     operation_description='Delete a brand by ID.'
 )
-@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@api_view(['GET', 'PUT', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
 @staff_required

@@ -247,7 +247,7 @@ def product_admin_list(request):
 @product_retrieve_schema
 @product_update_schema
 @product_delete_schema
-@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@api_view(['GET', 'PUT', 'DELETE'])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 @csrf_exempt
 @staff_required()
@@ -283,7 +283,7 @@ def product_admin_detail(request, id):
         }
         return Response(response_data)
         
-    elif request.method in ['PUT', 'PATCH']:
+    elif request.method in ['PUT']:
         # Check if product is soft-deleted
         if product.deleted_at:
             return Response(
@@ -291,7 +291,7 @@ def product_admin_detail(request, id):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # Handle PUT/PATCH request - Update product
+        # Handle PUT request - Update product
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data
         
         try:
