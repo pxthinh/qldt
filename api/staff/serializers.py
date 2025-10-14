@@ -178,7 +178,7 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Staff
         fields = ('username', 'email', 'first_name', 'last_name', 
-                 'phone', 'password', 'is_active', 'store_id', 'store', 'manager')
+                 'phone', 'password', 'is_active', 'store', 'manager')
         extra_kwargs = {
             'username': {'help_text': 'Username for the staff account'},
             'email': {'required': True, 'help_text': 'Email address of the staff member'},
@@ -186,11 +186,6 @@ class StaffCreateUpdateSerializer(serializers.ModelSerializer):
             'last_name': {'help_text': 'Last name of the staff member'},
             'phone': {'help_text': 'Contact phone number'},
             'is_active': {'help_text': 'Whether the staff account is active', 'default': True},
-            'store_id': {
-                'help_text': 'ID of an existing store (provide either this or store object)',
-                'required': False,
-                'allow_null': True
-            },
             'manager': {
                 'help_text': 'ID of the manager (0 for no manager)',
                 'required': False,
